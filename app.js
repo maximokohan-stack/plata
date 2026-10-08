@@ -119,6 +119,8 @@ function groupBalances(g) {
     bal[e.paidBy] = (bal[e.paidBy] || 0) + e.amount;
     for (const [m, v] of Object.entries(expenseShares(e))) bal[m] = (bal[m] || 0) - v;
   }
+  // pagos ya hechos entre integrantes: quien paga reduce lo que debe; quien cobra reduce lo que le deben
+  for (const p of g.payments || []) { bal[p.from] = (bal[p.from] || 0) + p.amount; bal[p.to] = (bal[p.to] || 0) - p.amount; }
   return bal;
 }
 // consumo y aporte de cada integrante
@@ -249,7 +251,8 @@ function vGroups() {
     return `<button class="back" data-act="gback">‹ Grupos</button>
     <div class="card hero"><div class="label">${esc(g.name)}</div><div class="big">${money(total)}</div><div class="muted">${g.members.map(esc).join(', ')}</div></div>
     <div class="btns" style="margin:0 0 4px"><button class="btn" data-act="newitems">Compra por producto</button><button class="btn ghost" data-act="newgexp">+ Gasto simple</button></div>
-    <h3>Cómo saldar</h3><div class="list">${st.length ? st.map(s => `<div class="item"><div class="grow"><b>${esc(s.from)}</b> le paga a <b>${esc(s.to)}</b></div><div class="amt">${money(s.amount)}</div></div>`).join('') : `<div class="item muted">Todo saldado 🎉</div>`}</div>
+    <h3>Cómo saldar</h3><div class="list">${st.length ? st.map(s => `<button class="item" data-act="gpay" data-from="${esc(s.from)}" data-to="${esc(s.to)}" data-amt="${Math.round(s.amount * 100) / 100}"><div class="grow"><b>${esc(s.from)}</b> le paga a <b>${esc(s.to)}</b><div class="s">Tocá para registrar el pago${s.to === 'Yo' ? ' o cobrar' : ''}</div></div><div class="amt">${money(s.amount)}</div></button>`).join('') : `<div class="item muted">${g.expenses.length ? 'Todo saldado' : 'Todavía no hay nada para saldar'}</div>`}</div>
+    ${(g.payments || []).length ? `<h3>Pagos registrados</h3><div class="list">${g.payments.slice().sort(byDate).map(p => `<button class="item" data-act="gpaydel" data-id="${p.id}"><div class="grow"><b>${esc(p.from)}</b> le pagó a <b>${esc(p.to)}</b><div class="s">${dayLabel(p.date)} · tocá para deshacer</div></div><div class="amt pos">${money(p.amount)}</div></button>`).join('')}</div>` : ''}
     ${g.expenses.length ? `<h3>Quién consumió qué</h3><div class="list">${g.members.map(m => { const c = cons[m] || { consumed: 0, paid: 0 }, b = bal[m] || 0; return `<div class="item"><div class="grow"><b>${esc(m)}</b><div class="s">consumió ${money(c.consumed)} · puso ${money(c.paid)}</div></div><div class="amt ${b > 0.005 ? 'pos' : b < -0.005 ? 'neg' : 'muted'}">${b > 0.005 ? '+' : b < -0.005 ? '−' : ''}${money(Math.abs(b))}</div></div>`; }).join('')}</div>` : ''}
     <h3>Gastos</h3>${g.expenses.length ? `<div class="list">${g.expenses.slice().sort(byDate).map(e => `<button class="item" data-act="gexp" data-id="${e.id}"><div class="grow"><div class="t">${esc(e.desc)}</div><div class="s">Pagó ${esc(e.paidBy)} · ${dayLabel(e.date)} · ${e.items?.length ? e.items.length + (e.items.length === 1 ? ' producto' : ' productos') : e.split.length === g.members.length ? 'todos' : e.split.map(esc).join(', ')}</div></div><div class="amt">${money(e.amount)}</div></button>`).join('')}</div>` : `<div class="list">${empty('Sin gastos', 'Sumá el primero con el botón de arriba.')}</div>`}
     <div class="btns"><button class="btn danger sm" data-act="gdel">Eliminar grupo</button></div>`;
@@ -373,6 +376,17 @@ function formGexp(g, e) {
     <button class="btn block">Guardar</button>
     ${e ? `<button type="button" class="btn danger block" data-act="gexpdel" data-id="${e.id}">Eliminar</button>` : ''}</form>`);
 }
+// Registrar el pago de una transferencia sugerida; si cobrás vos, arma el mensaje con tu alias; si pagás vos, guarda el alias de quien cobra
+function sheetPay(g, from, to, amt) {
+  const mine = S.me?.alias || '', theirs = g.aliases?.[to] || '';
+  sheet('Registrar pago', `<form data-form="gpay"><input type="hidden" name="from" value="${esc(from)}"><input type="hidden" name="to" value="${esc(to)}">
+    <div class="card" style="margin:0"><div class="label">${esc(from)} → ${esc(to)}</div><div class="muted" style="font-size:13px">Faltan ${money(amt)} para saldar esta deuda</div></div>
+    ${field('Monto pagado', `<input class="money" name="amount" type="text" inputmode="decimal" value="${amt}" required>`)}
+    ${field('Fecha', `<input type="date" name="date" value="${today()}">`)}
+    ${to === 'Yo' ? field('Tu alias o CBU, para cobrar', `<input type="text" name="alias" value="${esc(mine)}" placeholder="mi.alias.mp" autocomplete="off" autocapitalize="off">`) + `<button type="button" class="btn ghost block" data-act="gcobrar">Cobrar por WhatsApp</button>` : ''}
+    ${from === 'Yo' ? field(`Alias o CBU de ${esc(to)} (opcional)`, `<input type="text" name="alias" value="${esc(theirs)}" placeholder="su.alias" autocomplete="off" autocapitalize="off">`) + `<button type="button" class="btn ghost block" data-act="gcopy">Copiar alias</button>` : ''}
+    <button class="btn block">Registrar pago</button></form>`);
+}
 function sheetDebt(d) {
   const fin = d.cuotasPagas >= d.cuotas;
   sheet(d.name, `<div class="card"><div class="label">Falta pagar</div><div class="big neg">${money(debtLeft(d))}</div>
@@ -425,8 +439,21 @@ const act = {
     const k = el.dataset.k, loans = S.loans.filter(l => l.person.trim().toLowerCase() === k && l.dir === 'me-deben' && loanLeft(l) > 0);
     const p = peopleList().find(x => x.key === k), total = sum(loans, loanLeft), first = p.name.split(' ')[0];
     const concept = loans.length === 1 && loans[0].concept ? ` de ${loans[0].concept}` : '';
-    const msg = `Hola ${first}! Te escribo por los ${money(total)}${concept} que quedaron pendientes. Cuando puedas me avisás, gracias!`;
+    const msg = `Hola ${first}! Te escribo por los ${money(total)}${concept} que quedaron pendientes.${S.me?.alias ? ` Podés pasármelo al alias ${S.me.alias}.` : ''} Cuando puedas me avisás, gracias!`;
     window.open(`https://wa.me/${(p.phone || '').replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank', 'noopener');
+  },
+  gpay: el => sheetPay(S.groups.find(g => g.id === openGroup), el.dataset.from, el.dataset.to, +el.dataset.amt),
+  gpaydel: el => { if (confirm('¿Deshacer este pago? Vuelve a aparecer como pendiente.')) { const g = S.groups.find(x => x.id === openGroup); g.payments = (g.payments || []).filter(p => p.id !== el.dataset.id); commit(); } },
+  gcopy: () => {
+    const a = $('form[data-form=gpay] [name=alias]')?.value.trim(); if (!a) return toast('Primero escribí el alias');
+    (navigator.clipboard?.writeText(a) || Promise.reject()).then(() => toast('Alias copiado'), () => toast('No pude copiar. Mantené apretado el texto para copiarlo.'));
+  },
+  gcobrar: () => {
+    const f = $('form[data-form=gpay]'), g = S.groups.find(x => x.id === openGroup), alias = f.alias.value.trim(), amt = parseAmount(f.amount.value);
+    if (!alias) return toast('Escribí tu alias para poder cobrar');
+    (S.me ||= {}).alias = alias; save();
+    const msg = `Hola ${f.from.value.split(' ')[0]}! Quedamos en ${money(amt)} por "${g.name}". Pasámelo al alias ${alias}. Gracias!`;
+    window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank', 'noopener');
   },
   group: el => { openGroup = el.dataset.id; render(); scrollTo(0, 0); },
   gback: () => { openGroup = null; render(); },
@@ -445,6 +472,7 @@ const act = {
     <label>Tema<div class="seg">${[['light', 'Claro'], ['dark', 'Oscuro']].map(([v, n]) => `<label><input type="radio" name="theme" value="${v}" ${getTheme() === v ? 'checked' : ''}><span>${n}</span></label>`).join('')}</div></label>
     ${/SamsungBrowser/.test(navigator.userAgent) ? '<p class="muted" style="font-size:13px;margin:0">Estás usando Samsung Internet. Si el tema Claro se ve oscuro, es el modo oscuro de ese navegador: apagalo para sitios web en sus ajustes (☰ → Ajustes → Apariencia, o Labs), o instalá Plata desde Chrome.</p>' : ''}
     <button class="btn ghost block" data-act="cfg">Funciones con IA (opcional)</button>
+    <label>Mi alias o CBU, para cobrar por WhatsApp<input type="text" id="me-alias" value="${esc(S.me?.alias || '')}" placeholder="mi.alias.mp" autocomplete="off" autocapitalize="off"></label>
     <p class="muted">Tus datos viven solo en este dispositivo. Hacé backups seguido, sobre todo antes de cambiar de celular.</p>
     <div class="btns"><button class="btn" data-act="export">Exportar backup</button>
     <label class="btn ghost" style="cursor:pointer">Importar backup<input type="file" accept="application/json" id="imp" hidden></label>
@@ -458,6 +486,13 @@ const act = {
 };
 
 const forms = {
+  gpay(f) {
+    const g = S.groups.find(x => x.id === openGroup), amount = parseAmount(f.amount.value);
+    if (!(amount > 0)) return toast('Monto inválido');
+    const from = f.from.value, to = f.to.value, alias = f.alias?.value.trim();
+    (g.payments ||= []).push({ id: uid(), from, to, amount: Math.round(amount * 100) / 100, date: f.date.value || today() });
+    if (alias !== undefined) { if (to === 'Yo') (S.me ||= {}).alias = alias; else if (from === 'Yo') (g.aliases ||= {})[to] = alias; }
+  },
   tx(f, id) {
     const amount = parseAmount(f.amount.value); if (!(amount > 0)) return toast('Monto inválido');
     const type = f.type.value, raw = f.cat.value.trim().replace(/\s+/g, ' ');
@@ -528,6 +563,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet()
 act.combotoggle = el => { const i = el.parentElement.querySelector('input'), l = el.parentElement.querySelector('.combo-list'); if (l.hidden) { comboRender(i, true); i.focus({ preventScroll: true }); } else l.hidden = true; };
 act.combopick = el => { const c = el.closest('.combo'); c.querySelector('input').value = el.dataset.v; c.querySelector('.combo-list').hidden = true; };
 document.addEventListener('input', e => { if (e.target.matches('.combo input')) comboRender(e.target, false); });
+document.addEventListener('input', e => { if (e.target.id === 'me-alias') { (S.me ||= {}).alias = e.target.value.trim(); save(); } });
 document.addEventListener('focusin', e => { if (e.target.matches('.combo input')) { e.target.select(); comboRender(e.target, false); } });
 document.addEventListener('click', e => { if (!e.target.closest('.combo')) document.querySelectorAll('.combo-list').forEach(l => l.hidden = true); });
 
