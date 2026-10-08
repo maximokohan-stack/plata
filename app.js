@@ -14,7 +14,10 @@ const getTheme = () => storedTheme() || (matchMedia('(prefers-color-scheme: dark
 function applyTheme(t) {
   const root = document.documentElement;
   root.setAttribute('data-theme', t);
-  root.style.colorScheme = t;     // le dice al navegador, sin ambigüedad, que no oscurezca la página por su cuenta
+  // "only light" es la forma oficial de prohibir que Android/Chrome oscurezcan la página por su cuenta (daría marrones)
+  const cs = t === 'light' ? 'only light' : 'dark';
+  root.style.colorScheme = cs;
+  const meta = document.querySelector('meta[name=color-scheme]'); if (meta) meta.content = cs;
   document.querySelectorAll('meta[name=theme-color]').forEach(m => { m.dataset.orig ||= m.content; m.content = THEME_BG[t]; });
 }
 if (storedTheme()) applyTheme(storedTheme());
