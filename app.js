@@ -1,6 +1,20 @@
 'use strict';
 /* Plata — control de gastos, deudas y plata prestada. Local-first: todo vive en el dispositivo. */
 
+// ---------- versión y actualizaciones ----------
+// La versión sale del nombre de la caché del service worker (plata-vN), así no se duplica en dos lugares.
+async function showVersion() {
+  const el = $('#app-ver'); if (!el) return;
+  try {
+    const n = (await caches.keys()).filter(k => k.startsWith('plata-v')).map(k => +k.slice(7)).filter(Boolean).sort((a, b) => b - a)[0];
+    el.textContent = n ? 'Versión ' + n : 'Versión sin instalar';
+  } catch { el.textContent = ''; }
+}
+if ('serviceWorker' in navigator) {
+  let hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) $('#update').hidden = false; hadController = true; });
+}
+
 // ---------- instalación (Android / Chrome) ----------
 let installEv = null;
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEv = e; });
@@ -419,14 +433,21 @@ const act = {
   gexp: el => { const g = S.groups.find(x => x.id === openGroup), e = g.expenses.find(x => x.id === el.dataset.id); e.items ? formItems(g, e) : formGexp(g, e); },
   gexpdel: el => { const g = S.groups.find(x => x.id === openGroup); g.expenses = g.expenses.filter(e => e.id !== el.dataset.id); closeSheet(); commit(); },
   install: async () => { if (!installEv) return; installEv.prompt(); try { await installEv.userChoice; } catch { } installEv = null; closeSheet(); },
-  settings: () => sheet('Ajustes y backup', `
+  reload: () => location.reload(),
+  checkupdate: async () => {
+    const el = $('#app-ver'); if (el) el.textContent = 'Buscando actualización…';
+    try { const reg = await navigator.serviceWorker.getRegistration(); await reg?.update(); } catch { }
+    setTimeout(showVersion, 1500);
+  },
+  settings: () => { sheet('Ajustes y backup', `
     ${installEv && !matchMedia('(display-mode: standalone)').matches ? '<button class="btn block" data-act="install">Instalar app en este teléfono</button>' : ''}
     <label>Tema<div class="seg">${[['light', 'Claro'], ['dark', 'Oscuro']].map(([v, n]) => `<label><input type="radio" name="theme" value="${v}" ${getTheme() === v ? 'checked' : ''}><span>${n}</span></label>`).join('')}</div></label>
     <button class="btn ghost block" data-act="cfg">Funciones con IA (opcional)</button>
     <p class="muted">Tus datos viven solo en este dispositivo. Hacé backups seguido, sobre todo antes de cambiar de celular.</p>
     <div class="btns"><button class="btn" data-act="export">Exportar backup</button>
     <label class="btn ghost" style="cursor:pointer">Importar backup<input type="file" accept="application/json" id="imp" hidden></label>
-    <button class="btn danger" data-act="wipe">Borrar todo</button></div>`),
+    <button class="btn danger" data-act="wipe">Borrar todo</button></div>
+    <div class="row" style="margin-top:6px"><span id="app-ver" class="muted" style="font-size:13px"></span><button class="btn ghost sm" data-act="checkupdate">Buscar actualización</button></div>`); showVersion(); },
   export: () => {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' }));
     a.download = `plata-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1e3);
