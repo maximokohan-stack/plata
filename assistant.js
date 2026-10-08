@@ -40,7 +40,8 @@ const runTool = {
       .map(t => ({ date: t.date, type: t.type, amount: t.amount, category: t.cat, method: t.method || null, note: t.note }));
   },
   add_transaction({ type, amount, category, method, note, date }) {
-    if (!(amount > 0) || !['gasto', 'ingreso'].includes(type)) throw new Error('Datos inválidos');
+    if (!(amount > 0) || !isFinite(amount) || !['gasto', 'ingreso'].includes(type)) throw new Error('Datos inválidos');
+    amount = r2(amount);
     const raw = String(category || '').trim().replace(/\s+/g, ' ').slice(0, 30);
     if (!raw) throw new Error('Falta la categoría');
     let cat = findCat(type, raw);
@@ -50,13 +51,14 @@ const runTool = {
     S.tx.push(t); commit(); return { ok: true, saved: { type, amount, category: cat, method: m, date: t.date } };
   },
   add_loan({ direction, person, amount, concept }) {
-    if (!(amount > 0) || !person) throw new Error('Datos inválidos');
-    S.loans.push({ id: uid(), dir: direction, person: person.trim(), amount, concept: concept || '', phone: '', date: today(), payments: [] });
+    if (!(amount > 0) || !isFinite(amount) || !String(person || '').trim() || !['me-deben', 'debo'].includes(direction)) throw new Error('Datos inválidos');
+    S.loans.push({ id: uid(), dir: direction, person: String(person).trim(), amount, concept: concept || '', phone: '', date: today(), payments: [] });
     commit(); return { ok: true };
   },
   register_payment({ person, direction, amount }) {
-    const k = person.trim().toLowerCase();
-    const loans = S.loans.filter(l => l.person.trim().toLowerCase() === k && l.dir === direction && loanLeft(l) > 0).sort((a, b) => a.date.localeCompare(b.date));
+    const k = String(person || '').trim().toLowerCase();
+    if (!(amount > 0) || !isFinite(amount)) throw new Error('Datos inválidos');
+    const loans = S.loans.filter(l => personKey(l) === k && l.dir === direction && loanLeft(l) > 0).sort((a, b) => a.date.localeCompare(b.date));
     if (!loans.length) throw new Error('No hay deuda pendiente con esa persona en esa dirección');
     let rest = amount;
     for (const l of loans) { if (rest <= 0) break; const a = Math.min(rest, loanLeft(l)); (l.payments ||= []).push({ id: uid(), amount: a, date: today() }); rest -= a; }
@@ -152,7 +154,11 @@ forms.cfg = f => {
 syncAi();
 act.chat = openChat;
 act.cfg = () => openCfg();
-act.cfgdel = () => { setCfg({ apiKey: '' }); chat.msgs = []; chat.ui = []; closeSheet(); $('#chat').hidden = true; syncHistory(); toast('API key eliminada'); };
+act.cfgdel = () => {   // borra la key del proveedor que se está viendo (no necesariamente el activo)
+  clearKey($('#cfg-provider')?.value || getCfg().provider); chat.msgs = []; chat.ui = []; closeSheet();
+  if (!getCfg().apiKey) { $('#chat').hidden = true; syncHistory(); }
+  toast('API key eliminada');
+};
 act.listmodels = async () => {
   const st = $('#cfg-status'), prov = $('#cfg-provider').value, key = $('form[data-form=cfg]').apiKey.value.trim();
   st.textContent = 'Buscando modelos…';

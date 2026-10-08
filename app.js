@@ -42,7 +42,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // Montos: el punto separa miles y la coma los decimales (siempre, también en cifras de 4 dígitos: 1.234)
 const NF = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 2, minimumFractionDigits: 0 });
-const money = n => { n = Number(n) || 0; return (n < 0 ? '-' : '') + '$\u00a0' + NF.format(Math.abs(n)); };
+const money = n => { n = Math.round((Number(n) || 0) * 100) / 100; return (n < 0 ? '-' : '') + '$\u00a0' + NF.format(Math.abs(n)); };
 const fmtIn = n => (n === '' || n == null || isNaN(n)) ? '' : NF.format(Math.round(Number(n) * 100) / 100);   // para precargar un campo de monto
 // campo de monto con el símbolo $ fijo a la izquierda
 const MI = (inputHtml, big) => `<span class="mi${big ? ' big' : ''}"><span class="cur" aria-hidden="true">$</span>${inputHtml}</span>`;
@@ -59,6 +59,7 @@ const parseAmount = v => {
 // mientras se escribe: agrupa los miles con puntos, deja la coma para los decimales (máx. 2) y conserva el cursor
 function fmtMoneyInput(el, e) {
   let s = el.value, caret = el.selectionStart ?? s.length;
+  const neg = el.classList.contains('i-amt') && /[-\u2212\u2013]/.test(s);   // los precios de producto pueden ser negativos (descuentos)
   const last = el._last ?? el.defaultValue ?? '';
   if (e && e.inputType === 'deleteContentBackward' && last.length === s.length + 1 && last[caret] === '.' && last.slice(0, caret) + last.slice(caret + 1) === s) { s = last.slice(0, caret - 1) + last.slice(caret + 1); caret = Math.max(caret - 1, 0); }   // borrar un punto de miles borra el dígito anterior
   else if (e && e.inputType === 'insertText' && e.data && e.data.includes('.')) s = s.slice(0, caret - e.data.length) + e.data.replace(/\./g, ',') + s.slice(caret);   // un punto tipeado = coma decimal
@@ -74,7 +75,7 @@ function fmtMoneyInput(el, e) {
   const dec = ci < 0 ? null : clean.slice(ci + 1).replace(/,/g, '').slice(0, 2);
   int = int.replace(/^0+(?=\d)/, '');
   if (!int && dec !== null) { int = '0'; sig++; }
-  const out = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (dec !== null ? ',' + dec : '');
+  const out = (neg && (int || dec !== null) ? '-' : '') + int.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (dec !== null ? ',' + dec : '');
   el.value = el._last = out;
   let pos = 0, n = 0; while (pos < out.length && n < sig) { if (/[\d,]/.test(out[pos])) n++; pos++; }
   try { el.setSelectionRange(pos, pos); } catch { /* algunos teclados no lo permiten */ }
@@ -100,12 +101,23 @@ const idb = () => new Promise((res, rej) => {
   r.onupgradeneeded = () => r.result.createObjectStore('kv');
   r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
 });
+// deja el estado con la forma que la app espera (listas siempre presentes, sin registros dañados)
+function normState(v) {
+  const arr = x => Array.isArray(x) ? x : [], num = x => typeof x === 'number' && isFinite(x);
+  return {
+    ...v,
+    tx: arr(v.tx).filter(t => t && typeof t.date === 'string' && num(t.amount)),
+    debts: arr(v.debts).filter(d => d && num(d.cuota) && d.cuotas > 0),
+    loans: arr(v.loans).filter(l => l && num(l.amount)).map(l => ({ ...l, person: String(l.person ?? '').trim() || 'Sin nombre', payments: arr(l.payments) })),
+    groups: arr(v.groups).filter(g => g && Array.isArray(g.members)).map(g => ({ ...g, expenses: arr(g.expenses).filter(e => e && num(e.amount) && Array.isArray(e.split)), payments: arr(g.payments) }))
+  };
+}
 async function load() {
   try {
     const db = await idb();
     const v = await new Promise((res, rej) => { const q = db.transaction('kv').objectStore('kv').get(KEY); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
-    if (v) S = { ...S, ...v };
-  } catch { try { const v = JSON.parse(localStorage.getItem(KEY) || 'null'); if (v) S = { ...S, ...v }; } catch { } }
+    if (v) S = normState({ ...S, ...v });
+  } catch { try { const v = JSON.parse(localStorage.getItem(KEY) || 'null'); if (v) S = normState({ ...S, ...v }); } catch { } }
 }
 async function save() {
   try {
@@ -125,11 +137,13 @@ const daysUntil = day => {
   if (t < new Date(y, m, n.getDate())) t = new Date(y, m + 1, Math.min(day, new Date(y, m + 2, 0).getDate()));
   return Math.round((t - new Date(y, m, n.getDate())) / 864e5);
 };
+const personName = l => String(l.person ?? '').trim() || 'Sin nombre';
+const personKey = l => personName(l).toLowerCase();
 function peopleList() {
   const map = {};
   for (const l of S.loans) {
-    const k = l.person.trim().toLowerCase(); const left = loanLeft(l);
-    const p = map[k] ||= { key: k, name: l.person.trim(), net: 0, phone: '' };
+    const k = personKey(l); const left = loanLeft(l);
+    const p = map[k] ||= { key: k, name: personName(l), net: 0, phone: '' };
     p.net += (l.dir === 'me-deben' ? 1 : -1) * left;
     if (l.phone) p.phone = l.phone;
   }
@@ -204,7 +218,7 @@ function vHome() {
   ${due.length ? `<h3>Vencimientos cercanos</h3><div class="list">${due.map(({ d, n }) => `
     <button class="item" data-act="debt" data-id="${d.id}"><div class="dot">${stamp(d.name)}</div><div class="grow"><div class="t">${esc(d.name)}</div>
     <div class="s ${n <= 3 ? 'warn' : ''}">${n === 0 ? 'Vence hoy' : n === 1 ? 'Vence mañana' : 'Vence en ' + n + ' días'}</div></div><div class="amt neg">${money(d.cuota)}</div></button>`).join('')}</div>` : ''}
-  ${breakdownCard(tx, monthLabel(cur))}
+  <div id="bk">${breakdownCard(tx, monthLabel(cur))}</div>
   <h3>Últimos movimientos</h3><div class="card" style="padding:6px 14px">${txList(S.tx.slice().sort(byDate).slice(0, 5), true)}${S.tx.length ? `<div class="btns" style="margin:4px 0 8px"><button class="btn ghost block" data-act="tab" data-v="mov">Ver por mes</button></div>` : ''}</div>`;
 }
 
@@ -232,7 +246,16 @@ function breakdownCard(tx, when) {
   return `<h3>${title}</h3><div class="card">
     <div class="tog" role="group" aria-label="Agrupar gastos por"><button class="${byMet ? '' : 'on'}" data-act="hseg" data-v="cat" aria-pressed="${!byMet}">Categoría</button><button class="${byMet ? 'on' : ''}" data-act="hseg" data-v="met" aria-pressed="${byMet}">Método de pago</button></div>
     <div class="rib" role="img" aria-label="${esc(rows.map(r => r.n + ' ' + Math.round(r.v / total * 100) + '%').join(', '))}">${rows.map(r => `<i style="flex:${r.v};background:var(--c${r.c})"></i>`).join('')}</div>
-    <div class="lgd">${rows.map(r => `<div><span><i style="background:var(--c${r.c})"></i>${esc(r.n)} · ${Math.round(r.v / total * 100)}%</span><b class="neg">${money(r.v)}</b></div>`).join('')}</div></div>`;
+    <div class="lgd">${rows.map(r => `<div><span><i style="background:var(--c${r.c})"></i><em class="n">${esc(r.n)}</em></span><b class="neg">${money(r.v)}<small>${Math.round(r.v / total * 100)}%</small></b></div>`).join('')}</div></div>`;
+}
+// al cambiar entre categoría y método de pago solo se actualiza esa tarjeta (no se vuelve a dibujar la pantalla)
+function swapBreakdown() {
+  const box = $('#bk'); if (!box) return;
+  const cur = today().slice(0, 7), tmp = document.createElement('div');
+  tmp.innerHTML = breakdownCard(S.tx.filter(t => t.date.startsWith(cur)), monthLabel(cur));
+  box.querySelector('h3').innerHTML = tmp.querySelector('h3').innerHTML;
+  box.querySelectorAll('.tog button').forEach(b => { const on = b.dataset.v === homeSeg; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+  for (const sel of ['.rib', '.lgd']) { const a = box.querySelector(sel), b = tmp.querySelector(sel); if (a && b) { b.classList.add('swap'); a.replaceWith(b); } }
 }
 // círculo con la inicial y el color de la categoría (el mismo que en la cinta de Inicio)
 const catDot = c => { const k = CAT_SLOT[c] || hashSlot(c); return `<div class="dot${k === 5 ? ' d5' : ''}" style="background:var(--c${k})">${stamp(c)}</div>`; };
@@ -465,9 +488,9 @@ function sheetDebt(d) {
     ${fin ? '' : '<p class="muted" style="font-size:13px">Al pagar una cuota se suma también como gasto en “Deudas”.</p>'}`);
 }
 function sheetPerson(k) {
-  const loans = S.loans.filter(l => l.person.trim().toLowerCase() === k);
+  const loans = S.loans.filter(l => personKey(l) === k);
   if (!loans.length) return closeSheet();
-  const p = peopleList().find(x => x.key === k), name = loans[0].person;
+  const p = peopleList().find(x => x.key === k), name = personName(loans[0]);
   const lines = loans.slice().sort((a, b) => b.date.localeCompare(a.date)).map(l => `
     <div class="item" style="display:block"><div class="row"><div class="t">${esc(l.concept || (l.dir === 'me-deben' ? 'Préstamo' : 'Deuda'))}</div><div class="amt ${l.dir === 'me-deben' ? 'pos' : 'neg'}">${money(loanLeft(l))}</div></div>
     <div class="s">${l.dir === 'me-deben' ? 'Te debe' : 'Le debés'} · ${dayLabel(l.date)} · total ${money(l.amount)}${(l.payments || []).length ? ' · pagado ' + money(loanPaid(l)) : ''}</div>
@@ -482,7 +505,7 @@ const act = {
   mprev: () => { month = shiftMonth(month, -1); selDay = null; render(); },
   mnext: () => { month = shiftMonth(month, 1); selDay = null; render(); },
   // cambios dentro de la misma pantalla: no reanimar ni mover el scroll
-  hseg: el => keepView(() => { homeSeg = el.dataset.v; }),
+  hseg: el => { homeSeg = el.dataset.v; swapBreakdown(); },
   day: el => keepView(() => { selDay = el.dataset.d; }),
   movf: el => keepView(() => { movFilter = el.dataset.v; }),
   close: closeSheet,
@@ -507,9 +530,9 @@ const act = {
     sheet('Registrar pago', `<form data-form="loanpay" data-id="${l.id}">${field(`Monto (resta ${money(loanLeft(l))})`, MI(`<input class="money" name="amount" type="text" inputmode="decimal" value="${fmtIn(loanLeft(l))}" required autofocus>`, true))}
       ${field('Fecha', `<input type="date" name="date" value="${today()}">`)}<button class="btn block">Guardar</button></form>`);
   },
-  loandel: el => { if (confirm('¿Borrar este registro?')) { const k = S.loans.find(l => l.id === el.dataset.id)?.person.trim().toLowerCase(); S.loans = S.loans.filter(l => l.id !== el.dataset.id); commit(); sheetPerson(k); } },
+  loandel: el => { if (confirm('¿Borrar este registro?')) { const k = personKey(S.loans.find(l => l.id === el.dataset.id) || {}); S.loans = S.loans.filter(l => l.id !== el.dataset.id); commit(); sheetPerson(k); } },
   remind: el => {
-    const k = el.dataset.k, loans = S.loans.filter(l => l.person.trim().toLowerCase() === k && l.dir === 'me-deben' && loanLeft(l) > 0);
+    const k = el.dataset.k, loans = S.loans.filter(l => personKey(l) === k && l.dir === 'me-deben' && loanLeft(l) > 0);
     const p = peopleList().find(x => x.key === k), total = sum(loans, loanLeft), first = p.name.split(' ')[0];
     const concept = loans.length === 1 && loans[0].concept ? ` de ${loans[0].concept}` : '';
     const msg = `Hola ${first}! Te escribo por los ${money(total)}${concept} que quedaron pendientes.${S.me?.alias ? ` Podés pasármelo al alias ${S.me.alias}.` : ''} Cuando puedas me avisás, gracias!`;
@@ -580,27 +603,30 @@ const forms = {
   debt(f, id) {
     const total = parseAmount(f.total.value), cuotas = parseInt(f.cuotas.value), paid = Math.min(parseInt(f.paid.value) || 0, cuotas);
     if (!(total > 0) || !(cuotas > 0)) return toast('Revisá monto y cuotas');
+    if (!f.name.value.trim()) return toast('Poné un nombre a la deuda');
     const o = { id: id || uid(), name: f.name.value.trim(), cuotas, cuotasPagas: paid, cuota: Math.round(total / cuotas * 100) / 100, dueDay: parseInt(f.dueDay.value) || 0 };
     id ? S.debts[S.debts.findIndex(d => d.id === id)] = o : S.debts.push(o);
   },
   loan(f) {
     const amount = parseAmount(f.amount.value); if (!(amount > 0)) return toast('Monto inválido');
+    if (!f.person.value.trim()) return toast('Escribí el nombre de la persona');
     S.loans.push({ id: uid(), dir: f.dir.value, person: f.person.value.trim(), amount, concept: f.concept.value.trim(), phone: f.phone.value.trim(), date: f.date.value || today(), payments: [] });
   },
   loanpay(f, id) {
     const l = S.loans.find(x => x.id === id), a = parseAmount(f.amount.value); if (!(a > 0)) return toast('Monto inválido');
     (l.payments ||= []).push({ id: uid(), amount: Math.min(a, loanLeft(l)), date: f.date.value });
-    commit(); closeSheet(); sheetPerson(l.person.trim().toLowerCase()); return 'done';
+    commit(); closeSheet(); sheetPerson(personKey(l)); return 'done';
   },
   group(f) {
     const members = ['Yo', ...f.members.value.split(',').map(s => s.trim()).filter(s => s && s.toLowerCase() !== 'yo')];
+    if (!f.name.value.trim()) return toast('Poné un nombre al grupo');
     if (new Set(members.map(m => m.toLowerCase())).size !== members.length) return toast('Hay nombres repetidos');
     const g = { id: uid(), name: f.name.value.trim(), members, expenses: [] }; S.groups.push(g); openGroup = g.id;
   },
   gexp(f, id) {
     const g = S.groups.find(x => x.id === openGroup), amount = parseAmount(f.amount.value), split = [...f.querySelectorAll('[name=split]:checked')].map(c => c.value);
     if (!(amount > 0)) return toast('Monto inválido'); if (!split.length) return toast('Elegí con quién se divide');
-    const o = { id: id || uid(), desc: f.desc.value.trim(), amount, paidBy: f.paidBy.value, split, date: f.date.value || today() };
+    const o = { id: id || uid(), desc: f.desc.value.trim() || 'Gasto', amount, paidBy: f.paidBy.value, split, date: f.date.value || today() };
     id ? g.expenses[g.expenses.findIndex(e => e.id === id)] = o : g.expenses.push(o);
   }
 };
@@ -628,7 +654,7 @@ document.addEventListener('change', e => {
   file.text().then(t => {
     const v = JSON.parse(t);
     if (!Array.isArray(v.tx) || !Array.isArray(v.debts) || !Array.isArray(v.loans) || !Array.isArray(v.groups)) throw 0;
-    if (confirm('Esto reemplaza tus datos actuales por los del backup. ¿Continuar?')) { S = v; closeSheet(); commit(); toast('Backup importado'); }
+    if (confirm('Esto reemplaza tus datos actuales por los del backup. ¿Continuar?')) { S = normState(v); closeSheet(); commit(); toast('Backup importado'); }
   }).catch(() => toast('Archivo inválido'));
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });

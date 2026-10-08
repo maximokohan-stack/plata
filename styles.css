@@ -167,7 +167,7 @@ input.money{font:600 32px var(--display);min-height:68px;letter-spacing:-.02em}
 .btn:disabled{opacity:.5;cursor:default}
 .combo{position:relative}
 .combo input{padding-right:48px}
-.combo-btn{position:absolute;right:4px;top:5px;width:42px;height:42px;border-radius:50%;color:var(--muted);font-size:16px}
+.combo-btn{position:absolute;right:3px;top:4px;width:46px;height:46px;border-radius:50%;color:var(--muted);font-size:16px}
 .combo-btn:hover{background:var(--chip)}
 .combo-list{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:8;max-height:220px;overflow:auto;background:var(--surface);border-radius:20px;
   box-shadow:0 12px 28px rgba(var(--tint),.28),inset 0 0 0 1.5px var(--line);padding:4px}
@@ -210,8 +210,10 @@ body:not(.has-ai) .ai-only{display:none!important}
 .rib{display:flex;height:30px;border-radius:15px;overflow:hidden;gap:3px;margin:2px 0 12px}.rib i{display:block}
 .lgd{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .lgd>div{background:var(--bg);border-radius:20px;padding:9px 14px;min-width:0}
-.lgd span{display:flex;align-items:center;gap:7px;font-size:14px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lgd i{width:11px;height:11px;border-radius:3px;flex:none}.lgd b{display:block;font:600 17px var(--display);letter-spacing:-.01em}
+.lgd span{display:flex;align-items:center;gap:7px;font-size:14px;color:var(--muted);white-space:nowrap;min-width:0}
+.lgd em{font-style:normal}.lgd .n{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.lgd b small{font:500 13px var(--sans);color:var(--muted);letter-spacing:0}
+.lgd i{width:11px;height:11px;border-radius:3px;flex:none}.lgd b{display:flex;justify-content:space-between;align-items:baseline;gap:6px;font:600 17px var(--display);letter-spacing:-.01em}
 
 /* ver por mes: resumen, calendario de calor con el importe en miles, día elegido */
 .hero.slim{padding:14px 16px;border-radius:30px}
@@ -247,6 +249,9 @@ body:not(.has-ai) .ai-only{display:none!important}
 .imp-top .mi input[inputmode],.irow-top .mi input[inputmode]{padding-left:22px;padding-right:8px}
 .mi.big>.cur{left:16px;font:600 28px var(--display)}
 .mi.big input[inputmode]{padding-left:42px}
+/* cambio de categoría ↔ método de pago: solo se anima la cinta y la leyenda */
+.swap{animation:swapin .28s var(--ease) both}
+@keyframes swapin{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 main.still>*{animation:none!important}
 .back{min-height:46px;display:inline-flex;align-items:center}
 :focus-visible{outline:3px solid var(--c1);outline-offset:2px}

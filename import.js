@@ -32,7 +32,7 @@ function openImport() {
     <div class="row" style="justify-content:flex-start;gap:10px;flex-wrap:wrap">
       <label class="btn sm" style="cursor:pointer">Elegir capturas o PDF<input type="file" id="imp-file" accept="image/*,application/pdf" multiple hidden></label>
       <span id="imp-status" class="muted" style="font-size:13px"></span></div>
-    <div class="muted" style="font-size:12px">Los archivos se envían a Anthropic con tu API key (la del asistente) para leerlos.</div>
+    <div class="muted" style="font-size:12px">Los archivos se envían a tu proveedor de IA (el que elegiste en ⚙) con tu API key para leerlos.</div>
     <div id="imp-wrap" hidden>
       ${field('Medio de pago de estos movimientos', `<select id="imp-method">${METHODS.map(m => `<option ${m === (S.lastMethod || 'Efectivo') ? 'selected' : ''}>${m}</option>`).join('')}</select>`)}
       <div id="imp-list" class="prows" style="margin-top:14px"></div>

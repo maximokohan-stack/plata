@@ -32,6 +32,11 @@ function setCfg(p) {
   try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch { }
   syncAi();
 }
+function clearKey(provider) {
+  const c = readCfgRaw(); delete c.keys[provider];
+  try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch { }
+  syncAi();
+}
 // las funciones de IA solo aparecen si hay una API key cargada
 function syncAi() { document.body.classList.toggle('has-ai', !!getCfg().apiKey); }
 
