@@ -159,17 +159,16 @@ let debtsTab = 'people';   // 'people' (me deben / debo) | 'cards' (tarjetas, cu
 const empty = (t, s) => `<div class="empty"><b>${t}</b>${s}</div>`;
 
 function vHome() {
-  const tx = S.tx.filter(t => t.date.startsWith(month));
-  const inc = sum(tx.filter(t => t.type === 'ingreso'), t => t.amount);
-  const exp = sum(tx.filter(t => t.type === 'gasto'), t => t.amount);
+  const cur = today().slice(0, 7), tx = S.tx.filter(t => t.date.startsWith(cur));
+  const inc = sum(S.tx.filter(t => t.type === 'ingreso'), t => t.amount);
+  const exp = sum(S.tx.filter(t => t.type === 'gasto'), t => t.amount);
   const owedMe = sum(S.loans.filter(l => l.dir === 'me-deben'), loanLeft);
   const iOwe = sum(S.loans.filter(l => l.dir === 'debo'), loanLeft) + sum(S.debts, debtLeft);
   const due = S.debts.filter(d => d.cuotasPagas < d.cuotas && d.dueDay).map(d => ({ d, n: daysUntil(d.dueDay) })).filter(x => x.n <= 10).sort((a, b) => a.n - b.n);
   const net = owedMe - iOwe;
   return `
-  ${monthNav()}
   <div class="card hero">
-    <div class="label">Balance del mes</div>
+    <div class="label">Balance general</div>
     <div class="big ${inc - exp < 0 ? 'neg' : ''} ${money(inc - exp).length > 13 ? 'sm' : ''}">${money(inc - exp)}</div>
     <div class="split"><div><span class="label">Ingresos</span><b class="pos">${money(inc)}</b></div><div><span class="label">Gastos</span><b class="neg">${money(exp)}</b></div></div>
   </div>
@@ -182,7 +181,7 @@ function vHome() {
   ${due.length ? `<h3>Vencimientos cercanos</h3><div class="list">${due.map(({ d, n }) => `
     <button class="item" data-act="debt" data-id="${d.id}"><div class="dot">${stamp(d.name)}</div><div class="grow"><div class="t">${esc(d.name)}</div>
     <div class="s ${n <= 3 ? 'warn' : ''}">${n === 0 ? 'Vence hoy' : n === 1 ? 'Vence mañana' : 'Vence en ' + n + ' días'}</div></div><div class="amt neg">${money(d.cuota)}</div></button>`).join('')}</div>` : ''}
-  ${breakdownCard(tx)}
+  ${breakdownCard(tx, monthLabel(cur))}
   <h3>Últimos movimientos</h3>${txList(S.tx.slice().sort(byDate).slice(0, 5), true)}
   ${S.tx.length ? `<div class="btns" style="margin-top:0"><button class="btn ghost sm" data-act="tab" data-v="mov">Ver por mes ›</button></div>` : ''}`;
 }
@@ -198,9 +197,9 @@ function assignSlots(names, pref) {
   for (const n of names) { let s = pref(n); for (let i = 0; i < 5 && used.has(s); i++) s = s % 5 + 1; used.add(s); out[n] = s; }
   return out;
 }
-function breakdownCard(tx) {
+function breakdownCard(tx, when) {
   const gastos = tx.filter(t => t.type === 'gasto'), total = sum(gastos, t => t.amount), byMet = homeSeg === 'met';
-  const title = byMet ? 'Gastos por método de pago' : 'Gastos por categoría';
+  const title = (byMet ? 'Gastos por método de pago' : 'Gastos por categoría') + (when ? ` <span class="muted" style="font:500 14px var(--sans)">· ${esc(when)}</span>` : '');
   if (!gastos.length) return `<h3>${title}</h3><div class="card"><div class="muted">Sin gastos este mes todavía.</div></div>`;
   const bucket = {};
   gastos.forEach(t => { const k = byMet ? (t.method || 'Sin método') : t.cat; bucket[k] = (bucket[k] || 0) + t.amount; });
