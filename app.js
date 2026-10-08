@@ -6,18 +6,18 @@ let installEv = null;
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEv = e; });
 addEventListener('appinstalled', () => { installEv = null; });
 
-// ---------- tema (automático / claro / oscuro) ----------
+// ---------- tema (claro / oscuro) ----------
+// Mientras la persona no elija, se sigue el tema del teléfono; al elegir, queda fijo.
 const THEME_BG = { light: '#f4f0e6', dark: '#15140f' };
-const getTheme = () => { try { const t = localStorage.getItem('plata.theme'); return t === 'light' || t === 'dark' ? t : 'auto'; } catch { return 'auto'; } };
+const storedTheme = () => { try { const t = localStorage.getItem('plata.theme'); return t === 'light' || t === 'dark' ? t : null; } catch { return null; } };
+const getTheme = () => storedTheme() || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 function applyTheme(t) {
   const root = document.documentElement;
-  t === 'auto' ? root.removeAttribute('data-theme') : root.setAttribute('data-theme', t);
-  document.querySelectorAll('meta[name=theme-color]').forEach(m => {
-    m.dataset.orig ||= m.content;
-    m.content = t === 'auto' ? m.dataset.orig : THEME_BG[t];
-  });
+  root.setAttribute('data-theme', t);
+  root.style.colorScheme = t;     // le dice al navegador, sin ambigüedad, que no oscurezca la página por su cuenta
+  document.querySelectorAll('meta[name=theme-color]').forEach(m => { m.dataset.orig ||= m.content; m.content = THEME_BG[t]; });
 }
-applyTheme(getTheme());
+if (storedTheme()) applyTheme(storedTheme());
 
 // ---------- utilidades ----------
 const $ = (s, el = document) => el.querySelector(s);
@@ -162,7 +162,7 @@ function vHome() {
     <div class="muted" style="font-size:13px;margin-top:4px">Lo que te deben menos lo que debés (deudas + personas).</div></div>
   ${due.length ? `<h3>Vencimientos cercanos</h3><div class="list">${due.map(({ d, n }) => `
     <button class="item" data-act="debt" data-id="${d.id}"><div class="dot">${stamp(d.name)}</div><div class="grow"><div class="t">${esc(d.name)}</div>
-    <div class="s ${n <= 3 ? 'warn' : ''}">${n === 0 ? 'Vence hoy' : n === 1 ? 'Vence mañana' : 'Vence en ' + n + ' días'}</div></div><div class="amt">${money(d.cuota)}</div></button>`).join('')}</div>` : ''}
+    <div class="s ${n <= 3 ? 'warn' : ''}">${n === 0 ? 'Vence hoy' : n === 1 ? 'Vence mañana' : 'Vence en ' + n + ' días'}</div></div><div class="amt neg">${money(d.cuota)}</div></button>`).join('')}</div>` : ''}
   <h3>Gastos por categoría</h3>
   <div class="card">${cats.length ? cats.map(([c, v]) => `<div class="catrow"><div class="row"><span>${esc(c)}</span><b>${money(v)}</b></div><div class="bar"><i style="width:${Math.round(v / exp * 100)}%"></i></div></div>`).join('')
       : '<div class="muted">Sin gastos este mes todavía.</div>'}</div>
@@ -175,7 +175,7 @@ const monthNav = () => `<div class="month"><button data-act="mprev" aria-label="
 const txList = (arr, compact) => !arr.length ? `<div class="list">${empty('Todavía no hay movimientos', 'Tocá + para cargar el primero.')}</div>` : `<div class="list">${arr.map(t => `
   <button class="item" data-act="tx" data-id="${t.id}"><div class="dot">${stamp(t.cat)}</div>
   <div class="grow"><div class="t">${esc(t.note || t.cat)}</div><div class="s">${esc(t.cat)}${t.method ? ' · ' + esc(t.method) : ''} · ${dayLabel(t.date)}</div></div>
-  <div class="amt ${t.type === 'ingreso' ? 'pos' : ''}">${t.type === 'ingreso' ? '+' : '−'}${money(t.amount)}</div></button>`).join('')}</div>`;
+  <div class="amt ${t.type === 'ingreso' ? 'pos' : 'neg'}">${t.type === 'ingreso' ? '+' : '−'}${money(t.amount)}</div></button>`).join('')}</div>`;
 
 function vMov() {
   const tx = S.tx.filter(t => t.date.startsWith(month)).sort(byDate);
@@ -197,7 +197,7 @@ function vDebts() {
     <div class="muted">Cuotas del mes: <b>${money(sum(S.debts.filter(d => d.cuotasPagas < d.cuotas), d => d.cuota))}</b></div></div>
   <div class="list">${S.debts.map(d => {
     const pct = Math.round(d.cuotasPagas / d.cuotas * 100), fin = d.cuotasPagas >= d.cuotas;
-    return `<button class="item" data-act="debt" data-id="${d.id}" style="display:block"><div class="row"><div class="t">${esc(d.name)}</div><div class="amt">${fin ? '<span class="pill pos">Pagada</span>' : money(debtLeft(d))}</div></div>
+    return `<button class="item" data-act="debt" data-id="${d.id}" style="display:block"><div class="row"><div class="t">${esc(d.name)}</div><div class="amt ${fin ? '' : 'neg'}">${fin ? '<span class="pill pos">Pagada</span>' : money(debtLeft(d))}</div></div>
       <div class="s">${d.cuotasPagas}/${d.cuotas} cuotas de ${money(d.cuota)}${d.dueDay && !fin ? ' · vence el ' + d.dueDay : ''}</div><div class="bar"><i style="width:${pct}%"></i></div></button>`;
   }).join('')}</div>`;
 }
@@ -418,7 +418,7 @@ const act = {
   install: async () => { if (!installEv) return; installEv.prompt(); try { await installEv.userChoice; } catch { } installEv = null; closeSheet(); },
   settings: () => sheet('Ajustes y backup', `
     ${installEv && !matchMedia('(display-mode: standalone)').matches ? '<button class="btn block" data-act="install">Instalar app en este teléfono</button>' : ''}
-    <label>Tema<div class="seg">${[['auto', 'Automático'], ['light', 'Claro'], ['dark', 'Oscuro']].map(([v, n]) => `<label><input type="radio" name="theme" value="${v}" ${getTheme() === v ? 'checked' : ''}><span>${n}</span></label>`).join('')}</div></label>
+    <label>Tema<div class="seg">${[['light', 'Claro'], ['dark', 'Oscuro']].map(([v, n]) => `<label><input type="radio" name="theme" value="${v}" ${getTheme() === v ? 'checked' : ''}><span>${n}</span></label>`).join('')}</div></label>
     <button class="btn ghost block" data-act="cfg">Funciones con IA (opcional)</button>
     <p class="muted">Tus datos viven solo en este dispositivo. Hacé backups seguido, sobre todo antes de cambiar de celular.</p>
     <div class="btns"><button class="btn" data-act="export">Exportar backup</button>
@@ -486,7 +486,7 @@ document.addEventListener('submit', e => {
 document.addEventListener('change', e => {
   if (e.target.name === 'dsub') { debtsTab = e.target.value; render(); return; }
   if (e.target.name === 'theme') {
-    try { e.target.value === 'auto' ? localStorage.removeItem('plata.theme') : localStorage.setItem('plata.theme', e.target.value); } catch { }
+    try { localStorage.setItem('plata.theme', e.target.value); } catch { }
     applyTheme(e.target.value); return;
   }
   if (e.target.id !== 'imp') return;
