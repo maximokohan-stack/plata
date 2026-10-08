@@ -148,7 +148,12 @@ function settle(bal) {
 
 // ---------- vistas ----------
 let view = 'home', month = today().slice(0, 7), openGroup = null;
-const TITLES = { home: 'Inicio', mov: 'Movimientos', split: 'Dividir', groups: 'Grupos', debts: 'Deudas y cobros' };
+const TITLES = { home: 'Inicio', mov: 'Por mes', split: 'Dividir', groups: 'Grupos', debts: 'Deudas y cobros' };
+// aplica un cambio de estado y vuelve a dibujar sin animación y manteniendo el scroll
+function keepView(change) {
+  const y = scrollY, main = $('#main'); main.classList.add('still'); change(); render(); scrollTo(0, y);
+  requestAnimationFrame(() => main.classList.remove('still'));
+}
 let debtsTab = 'people';   // 'people' (me deben / debo) | 'cards' (tarjetas, cuotas, préstamos)
 
 const empty = (t, s) => `<div class="empty"><b>${t}</b>${s}</div>`;
@@ -159,12 +164,6 @@ function vHome() {
   const exp = sum(tx.filter(t => t.type === 'gasto'), t => t.amount);
   const owedMe = sum(S.loans.filter(l => l.dir === 'me-deben'), loanLeft);
   const iOwe = sum(S.loans.filter(l => l.dir === 'debo'), loanLeft) + sum(S.debts, debtLeft);
-  const byCat = {};
-  tx.filter(t => t.type === 'gasto').forEach(t => byCat[t.cat] = (byCat[t.cat] || 0) + t.amount);
-  const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  const byMethod = {};
-  tx.filter(t => t.type === 'gasto' && t.method).forEach(t => byMethod[t.method] = (byMethod[t.method] || 0) + t.amount);
-  const methods = Object.entries(byMethod).sort((a, b) => b[1] - a[1]);
   const due = S.debts.filter(d => d.cuotasPagas < d.cuotas && d.dueDay).map(d => ({ d, n: daysUntil(d.dueDay) })).filter(x => x.n <= 10).sort((a, b) => a.n - b.n);
   const net = owedMe - iOwe;
   return `
@@ -183,12 +182,36 @@ function vHome() {
   ${due.length ? `<h3>Vencimientos cercanos</h3><div class="list">${due.map(({ d, n }) => `
     <button class="item" data-act="debt" data-id="${d.id}"><div class="dot">${stamp(d.name)}</div><div class="grow"><div class="t">${esc(d.name)}</div>
     <div class="s ${n <= 3 ? 'warn' : ''}">${n === 0 ? 'Vence hoy' : n === 1 ? 'Vence mañana' : 'Vence en ' + n + ' días'}</div></div><div class="amt neg">${money(d.cuota)}</div></button>`).join('')}</div>` : ''}
-  <h3>Gastos por categoría</h3>
-  <div class="card">${cats.length ? cats.map(([c, v]) => `<div class="catrow"><div class="row"><span>${esc(c)}</span><b>${money(v)}</b></div><div class="bar"><i style="width:${Math.round(v / exp * 100)}%"></i></div></div>`).join('')
-      : '<div class="muted">Sin gastos este mes todavía.</div>'}</div>
-  ${methods.length ? `<h3>Con qué pagaste</h3><div class="card">${methods.map(([m, v]) => `<div class="catrow"><div class="row"><span>${esc(m)}</span><b>${money(v)}</b></div><div class="bar"><i style="width:${Math.round(v / exp * 100)}%"></i></div></div>`).join('')}</div>` : ''}
+  ${breakdownCard(tx)}
   <h3>Últimos movimientos</h3>${txList(S.tx.slice().sort(byDate).slice(0, 5), true)}
-  ${S.tx.length > 5 ? `<div class="btns" style="margin-top:0"><button class="btn ghost sm" data-act="tab" data-v="mov">Ver todos los movimientos (${S.tx.length}) ›</button></div>` : S.tx.length ? `<div class="btns" style="margin-top:0"><button class="btn ghost sm" data-act="tab" data-v="mov">Ver por mes ›</button></div>` : ''}`;
+  ${S.tx.length ? `<div class="btns" style="margin-top:0"><button class="btn ghost sm" data-act="tab" data-v="mov">Ver por mes ›</button></div>` : ''}`;
+}
+
+// ---------- gastos por categoría / método de pago (cinta + leyenda) ----------
+// El color sigue a la categoría (no a su posición): cada nombre tiene un color preferido y, si dos chocan, el segundo toma el siguiente libre.
+let homeSeg = 'cat';
+const CAT_SLOT = { Comida: 1, Ocio: 2, Transporte: 3, Servicios: 4, Compras: 5 };
+const METHOD_SLOT = { 'Débito': 1, 'Crédito': 2, 'Mercado Pago': 3, 'Efectivo': 4, 'Transferencia': 5 };
+const hashSlot = n => { let h = 0; for (const ch of norm(n)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 5 + 1; };
+function assignSlots(names, pref) {
+  const used = new Set(), out = {};
+  for (const n of names) { let s = pref(n); for (let i = 0; i < 5 && used.has(s); i++) s = s % 5 + 1; used.add(s); out[n] = s; }
+  return out;
+}
+function breakdownCard(tx) {
+  const gastos = tx.filter(t => t.type === 'gasto'), total = sum(gastos, t => t.amount), byMet = homeSeg === 'met';
+  const title = byMet ? 'Gastos por método de pago' : 'Gastos por categoría';
+  if (!gastos.length) return `<h3>${title}</h3><div class="card"><div class="muted">Sin gastos este mes todavía.</div></div>`;
+  const bucket = {};
+  gastos.forEach(t => { const k = byMet ? (t.method || 'Sin método') : t.cat; bucket[k] = (bucket[k] || 0) + t.amount; });
+  const all = Object.entries(bucket).sort((a, b) => b[1] - a[1]), top = all.slice(0, 5), rest = sum(all.slice(5), e => e[1]);
+  const slots = assignSlots(top.map(e => e[0]).filter(n => n !== 'Sin método'), byMet ? n => METHOD_SLOT[n] || hashSlot(n) : n => CAT_SLOT[n] || hashSlot(n));
+  const rows = top.map(([n, v]) => ({ n, v, c: slots[n] || 6 }));
+  if (rest > 0) rows.push({ n: 'Otras', v: rest, c: 6 });
+  return `<h3>${title}</h3><div class="card">
+    <div class="tog" role="group" aria-label="Agrupar gastos por"><button class="${byMet ? '' : 'on'}" data-act="hseg" data-v="cat" aria-pressed="${!byMet}">Categoría</button><button class="${byMet ? 'on' : ''}" data-act="hseg" data-v="met" aria-pressed="${byMet}">Método de pago</button></div>
+    <div class="rib" role="img" aria-label="${esc(rows.map(r => r.n + ' ' + Math.round(r.v / total * 100) + '%').join(', '))}">${rows.map(r => `<i style="flex:${r.v};background:var(--c${r.c})"></i>`).join('')}</div>
+    <div class="lgd">${rows.map(r => `<div><i style="background:var(--c${r.c})"></i><span>${esc(r.n)}</span><b>${money(r.v)}</b><small>${Math.round(r.v / total * 100)}%</small></div>`).join('')}</div></div>`;
 }
 const byDate = (a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id);
 const monthNav = () => `<div class="month"><button data-act="mprev" aria-label="Mes anterior">‹</button><b>${monthLabel(month)}</b><button data-act="mnext" aria-label="Mes siguiente">›</button></div>`;
@@ -197,9 +220,32 @@ const txList = (arr, compact) => !arr.length ? `<div class="list">${empty('Todav
   <div class="grow"><div class="t">${esc(t.note || t.cat)}</div><div class="s">${esc(t.cat)}${t.method ? ' · ' + esc(t.method) : ''} · ${dayLabel(t.date)}</div></div>
   <div class="amt ${t.type === 'ingreso' ? 'pos' : 'neg'}">${t.type === 'ingreso' ? '+' : '−'}${money(t.amount)}</div></button>`).join('')}</div>`;
 
+// ---------- ver por mes: resumen del mes + calendario de gasto por día + día elegido + lista ----------
+let selDay = null, movFilter = 'all';
+const dayLong = d => { const s = new Date(d + 'T12:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric' }); return s[0].toUpperCase() + s.slice(1); };
 function vMov() {
   const tx = S.tx.filter(t => t.date.startsWith(month)).sort(byDate);
-  return `<button class="back" data-act="tab" data-v="home">‹ Inicio</button>` + monthNav() + txList(tx)
+  const inc = sum(tx.filter(t => t.type === 'ingreso'), t => t.amount), exp = sum(tx.filter(t => t.type === 'gasto'), t => t.amount);
+  const [y, m] = month.split('-').map(Number), dim = new Date(y, m, 0).getDate(), lead = (new Date(y, m - 1, 1).getDay() + 6) % 7, now = today();
+  const spend = {}; tx.filter(t => t.type === 'gasto').forEach(t => spend[t.date] = (spend[t.date] || 0) + t.amount);
+  const vals = Object.values(spend), avg = vals.length ? sum(vals) / vals.length : 0;
+  const lvl = v => !v ? 0 : v < avg * .5 ? 1 : v < avg ? 2 : v < avg * 1.75 ? 3 : 4, atypical = v => vals.length >= 4 && v >= avg * 2.5;
+  const sel = selDay && selDay.startsWith(month) ? selDay : now.startsWith(month) ? now : (Object.keys(spend).sort().pop() || null);
+  let cells = ['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(w => `<div class="w" aria-hidden="true">${w}</div>`).join('') + '<div class="d v"></div>'.repeat(lead);
+  for (let i = 1; i <= dim; i++) {
+    const date = `${month}-${String(i).padStart(2, '0')}`, v = spend[date] || 0, cls = ['d', atypical(v) ? 'x' : 'l' + lvl(v), date > now ? 'f' : '', date === sel ? 'sel' : ''].join(' ');
+    cells += `<button class="${cls}" data-act="day" data-d="${date}" aria-pressed="${date === sel}" aria-label="${dayLong(date)}: ${v ? 'gastos ' + money(v) + (atypical(v) ? ', día atípico' : '') : 'sin gastos'}">${i}</button>`;
+  }
+  const dayTx = sel ? tx.filter(t => t.date === sel) : [], dayExp = sel ? (spend[sel] || 0) : 0;
+  const list = tx.filter(t => movFilter === 'all' || (movFilter === 'gasto') === (t.type === 'gasto'));
+  const net = inc - exp;
+  return `<button class="back" data-act="tab" data-v="home">‹ Inicio</button>` + monthNav()
+    + `<div class="strip"><div><small>Entró</small><b class="pos">${money(inc)}</b></div><div><small>Salió</small><b class="neg">${money(exp)}</b></div><div><small>Quedó</small><b class="${net < 0 ? 'neg' : ''}">${money(net)}</b></div></div>`
+    + `<div class="cal">${cells}</div>`
+    + `<div class="calkey"><span>menos</span>${['h0', 'h1', 'h2', 'h3', 'h4'].map(h => `<i style="background:var(--${h})"></i>`).join('')}<span>más gasto</span><span style="margin-left:auto">▲ día atípico</span></div>`
+    + (sel ? `<div class="dayc"><div class="dh"><span style="font:inherit">${dayLong(sel)}</span><span class="${dayExp ? 'neg' : 'muted'}">${dayExp ? '−' + money(dayExp) : 'Sin gastos'}</span></div>${dayTx.length ? txList(dayTx, true) : '<div class="muted" style="padding:4px 0 12px;font-size:14px">Sin movimientos este día.</div>'}</div>` : '')
+    + `<div class="fchips" role="group" aria-label="Filtrar movimientos">${[['all', 'Todo el mes'], ['gasto', 'Gastos'], ['ingreso', 'Ingresos']].map(([v, n]) => `<button class="${movFilter === v ? 'on' : ''}" data-act="movf" data-v="${v}" aria-pressed="${movFilter === v}">${n}</button>`).join('')}</div>`
+    + txList(list)
     + `<div class="btns" style="margin-top:0"><button class="btn ghost sm ai-only" data-act="importmov">Importar desde captura o resumen</button></div>`;
 }
 
@@ -410,8 +456,12 @@ function sheetPerson(k) {
 // ---------- acciones ----------
 const act = {
   tab: el => { view = el.dataset.v; if (el.dataset.sub) debtsTab = el.dataset.sub; openGroup = null; render(); scrollTo(0, 0); },
-  mprev: () => { month = shiftMonth(month, -1); render(); },
-  mnext: () => { month = shiftMonth(month, 1); render(); },
+  mprev: () => { month = shiftMonth(month, -1); selDay = null; render(); },
+  mnext: () => { month = shiftMonth(month, 1); selDay = null; render(); },
+  // cambios dentro de la misma pantalla: no reanimar ni mover el scroll
+  hseg: el => keepView(() => { homeSeg = el.dataset.v; }),
+  day: el => keepView(() => { selDay = el.dataset.d; }),
+  movf: el => keepView(() => { movFilter = el.dataset.v; }),
   close: closeSheet,
   addtx: () => formTx(),
   newloan: () => formLoan(),
