@@ -443,6 +443,7 @@ const act = {
   settings: () => { sheet('Ajustes y backup', `
     ${installEv && !matchMedia('(display-mode: standalone)').matches ? '<button class="btn block" data-act="install">Instalar app en este teléfono</button>' : ''}
     <label>Tema<div class="seg">${[['light', 'Claro'], ['dark', 'Oscuro']].map(([v, n]) => `<label><input type="radio" name="theme" value="${v}" ${getTheme() === v ? 'checked' : ''}><span>${n}</span></label>`).join('')}</div></label>
+    ${/SamsungBrowser/.test(navigator.userAgent) ? '<p class="muted" style="font-size:13px;margin:0">Estás usando Samsung Internet. Si el tema Claro se ve oscuro, es el modo oscuro de ese navegador: apagalo para sitios web en sus ajustes (☰ → Ajustes → Apariencia, o Labs), o instalá Plata desde Chrome.</p>' : ''}
     <button class="btn ghost block" data-act="cfg">Funciones con IA (opcional)</button>
     <p class="muted">Tus datos viven solo en este dispositivo. Hacé backups seguido, sobre todo antes de cambiar de celular.</p>
     <div class="btns"><button class="btn" data-act="export">Exportar backup</button>
