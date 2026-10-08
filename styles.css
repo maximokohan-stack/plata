@@ -7,7 +7,7 @@
   --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   --nav-h:62px; --ease:cubic-bezier(.2,.8,.2,1);
 }
-:root{color-scheme:light}
+:root{color-scheme:light dark}
 /* oscuro: automático (según el teléfono) o forzado con data-theme="dark" */
 @media (prefers-color-scheme:dark){
   :root:not([data-theme=light]){--bg:#15140f;--surface:#1e1c16;--ink:#efe9d9;--muted:#9b9484;--line:#322f26;--rule:#efe9d9;
@@ -113,6 +113,8 @@ label{display:grid;gap:6px;font-size:13px;font-weight:500;color:var(--muted)}
 input[type=text],input[type=date],input[type=number],input[type=tel],input[type=password],select{
   width:100%;min-height:50px;padding:0 14px;border-radius:12px 12px 12px 4px;border:0;background:var(--surface);color:var(--ink);font-size:17px;box-shadow:inset 0 0 0 1px var(--line);transition:box-shadow .2s}
 input:focus,select:focus{outline:0;box-shadow:inset 0 0 0 2px var(--accent)}
+/* tema Claro con el teléfono en oscuro: el navegador pinta en blanco el ícono del calendario */
+@media (prefers-color-scheme:dark){:root[data-theme=light] input::-webkit-calendar-picker-indicator{filter:invert(1)}}
 input.money{font:600 32px var(--serif);min-height:68px;letter-spacing:-.02em}
 .seg{display:grid;grid-auto-flow:column;gap:4px;background:var(--chip);padding:4px;border-radius:14px 14px 14px 6px}
 .seg label{margin:0;text-align:center;color:var(--ink);cursor:pointer;font-weight:500}

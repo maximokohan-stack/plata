@@ -28,8 +28,9 @@ const getTheme = () => storedTheme() || (matchMedia('(prefers-color-scheme: dark
 function applyTheme(t) {
   const root = document.documentElement;
   root.setAttribute('data-theme', t);
-  // "only light" es la forma oficial de prohibir que Android/Chrome oscurezcan la página por su cuenta (daría marrones)
-  const cs = t === 'light' ? 'only light' : 'dark';
+  // El filtro de "oscurecer sitios" de Android solo respeta a las páginas que declaran soportar el modo oscuro;
+  // por eso incluso en Claro se declara "light dark" y los colores claros los pintamos nosotros.
+  const cs = t === 'light' ? 'light dark' : 'dark';
   root.style.colorScheme = cs;
   const meta = document.querySelector('meta[name=color-scheme]'); if (meta) meta.content = cs;
   document.querySelectorAll('meta[name=theme-color]').forEach(m => { m.dataset.orig ||= m.content; m.content = THEME_BG[t]; });
