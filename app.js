@@ -1,6 +1,11 @@
 'use strict';
 /* Plata — control de gastos, deudas y plata prestada. Local-first: todo vive en el dispositivo. */
 
+// ---------- instalación (Android / Chrome) ----------
+let installEv = null;
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEv = e; });
+addEventListener('appinstalled', () => { installEv = null; });
+
 // ---------- tema (automático / claro / oscuro) ----------
 const THEME_BG = { light: '#f4f0e6', dark: '#15140f' };
 const getTheme = () => { try { const t = localStorage.getItem('plata.theme'); return t === 'light' || t === 'dark' ? t : 'auto'; } catch { return 'auto'; } };
@@ -242,11 +247,36 @@ function render() {
   $('#main').innerHTML = { home: vHome, mov: vMov, split: vSplit, groups: vGroups, debts: vDeudas }[view]();
   const tabOn = view === 'mov' ? 'home' : view;   // "Movimientos" cuelga de Inicio
   document.querySelectorAll('#tabs button[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === tabOn));
+  syncHistory();
 }
 
 // ---------- hoja modal ----------
-function sheet(title, html) { $('#sheet-title').textContent = title; $('#sheet-body').innerHTML = html; $('#overlay').hidden = false; $('#sheet-body').closest('.sheet').scrollTop = 0; }
-function closeSheet() { $('#overlay').hidden = true; $('#sheet-body').innerHTML = ''; }
+function sheet(title, html) { $('#sheet-title').textContent = title; $('#sheet-body').innerHTML = html; $('#overlay').hidden = false; $('#sheet-body').closest('.sheet').scrollTop = 0; syncHistory(); }
+function closeSheet() { $('#overlay').hidden = true; $('#sheet-body').innerHTML = ''; syncHistory(); }
+
+// ---------- botón / gesto "atrás" de Android ----------
+// Cada capa abierta (sección ≠ Inicio, detalle de grupo, chat, ventana) suma una entrada al historial,
+// así "atrás" cierra la capa de arriba en vez de sacar al usuario de la app. Desde Inicio, "atrás" sale.
+let histDepth = 0, ignorePops = 0, syncT = 0;
+const uiDepth = () => (view !== 'home' ? 1 : 0) + (openGroup && view === 'groups' ? 1 : 0) + ($('#overlay').hidden ? 0 : 1) + ($('#chat').hidden ? 0 : 1);
+function syncHistory() {
+  clearTimeout(syncT);
+  syncT = setTimeout(() => {                         // diferido: si se cierra y reabre algo en el mismo instante, no hay cambio
+    const d = uiDepth();
+    if (d > histDepth) while (histDepth < d) history.pushState({ plata: ++histDepth }, '');
+    else if (d < histDepth) { const n = histDepth - d; histDepth = d; ignorePops++; history.go(-n); }
+  }, 0);
+}
+addEventListener('popstate', () => {
+  if (ignorePops > 0) { ignorePops--; return; }
+  histDepth = Math.max(0, histDepth - 1);            // el usuario volvió una entrada
+  if (!$('#overlay').hidden) closeSheet();
+  else if (!$('#chat').hidden) $('#chat').hidden = true;
+  else if (openGroup && view === 'groups') { openGroup = null; render(); }
+  else if (view !== 'home') { view = 'home'; render(); }
+  syncHistory();
+});
+try { history.scrollRestoration = 'manual'; } catch { }
 // devuelve false para que `return toast('...')` en un formulario cuente como "no se guardó"
 function toast(m) { const t = $('#toast'); t.textContent = m; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2200); return false; }
 const field = (label, input) => `<label>${label}${input}</label>`;
@@ -385,7 +415,9 @@ const act = {
   gdel: () => { if (confirm('¿Eliminar el grupo y todos sus gastos?')) { S.groups = S.groups.filter(g => g.id !== openGroup); openGroup = null; commit(); } },
   gexp: el => { const g = S.groups.find(x => x.id === openGroup), e = g.expenses.find(x => x.id === el.dataset.id); e.items ? formItems(g, e) : formGexp(g, e); },
   gexpdel: el => { const g = S.groups.find(x => x.id === openGroup); g.expenses = g.expenses.filter(e => e.id !== el.dataset.id); closeSheet(); commit(); },
+  install: async () => { if (!installEv) return; installEv.prompt(); try { await installEv.userChoice; } catch { } installEv = null; closeSheet(); },
   settings: () => sheet('Ajustes y backup', `
+    ${installEv && !matchMedia('(display-mode: standalone)').matches ? '<button class="btn block" data-act="install">Instalar app en este teléfono</button>' : ''}
     <label>Tema<div class="seg">${[['auto', 'Automático'], ['light', 'Claro'], ['dark', 'Oscuro']].map(([v, n]) => `<label><input type="radio" name="theme" value="${v}" ${getTheme() === v ? 'checked' : ''}><span>${n}</span></label>`).join('')}</div></label>
     <button class="btn ghost block" data-act="cfg">Funciones con IA (opcional)</button>
     <p class="muted">Tus datos viven solo en este dispositivo. Hacé backups seguido, sobre todo antes de cambiar de celular.</p>

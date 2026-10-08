@@ -127,7 +127,7 @@ function drawChat() {
   box.scrollTop = box.scrollHeight;
   $('#chat-send').disabled = chat.busy;
 }
-function openChat() { $('#chat').hidden = false; drawChat(); if (!getCfg().apiKey) openCfg(); }
+function openChat() { $('#chat').hidden = false; drawChat(); syncHistory(); if (!getCfg().apiKey) openCfg(); }
 function openCfg(provider) {
   const c = getCfg(typeof provider === 'string' ? provider : undefined), P = PROVIDERS[c.provider];
   const sug = Object.entries(P.models).map(([id, n]) => `<option value="${esc(id)}">${esc(n)}</option>`).join('');
@@ -152,7 +152,7 @@ forms.cfg = f => {
 syncAi();
 act.chat = openChat;
 act.cfg = () => openCfg();
-act.cfgdel = () => { setCfg({ apiKey: '' }); chat.msgs = []; chat.ui = []; closeSheet(); $('#chat').hidden = true; toast('API key eliminada'); };
+act.cfgdel = () => { setCfg({ apiKey: '' }); chat.msgs = []; chat.ui = []; closeSheet(); $('#chat').hidden = true; syncHistory(); toast('API key eliminada'); };
 act.listmodels = async () => {
   const st = $('#cfg-status'), prov = $('#cfg-provider').value, key = $('form[data-form=cfg]').apiKey.value.trim();
   st.textContent = 'Buscando modelos…';
@@ -166,7 +166,7 @@ act.listmodels = async () => {
   } catch (e) { st.textContent = e.message; }
 };
 document.addEventListener('change', e => { if (e.target.id === 'cfg-provider') openCfg(e.target.value); });
-act.chatclose = () => { $('#chat').hidden = true; };
+act.chatclose = () => { $('#chat').hidden = true; syncHistory(); };
 act.chatclear = () => { chat.msgs = []; chat.ui = []; drawChat(); };
 act.hint = el => { if (!chat.busy) send(el.dataset.t); };
 document.addEventListener('submit', e => {
