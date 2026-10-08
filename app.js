@@ -109,6 +109,9 @@ function normState(v) {
     tx: arr(v.tx).filter(t => t && typeof t.date === 'string' && num(t.amount)),
     debts: arr(v.debts).filter(d => d && num(d.cuota) && d.cuotas > 0),
     loans: arr(v.loans).filter(l => l && num(l.amount)).map(l => ({ ...l, person: String(l.person ?? '').trim() || 'Sin nombre', payments: arr(l.payments) })),
+    moves: arr(v.moves).filter(m => m && num(m.amount) && m.from && m.to),
+    customMethods: arr(v.customMethods).filter(x => typeof x === 'string' && x.trim()),
+    accInit: v.accInit && typeof v.accInit === 'object' ? v.accInit : {},
     groups: arr(v.groups).filter(g => g && Array.isArray(g.members)).map(g => ({ ...g, expenses: arr(g.expenses).filter(e => e && num(e.amount) && Array.isArray(e.split)), payments: arr(g.payments) }))
   };
 }
@@ -405,8 +408,27 @@ function ensureCat(type, raw) {
   if (!cat) { cat = raw[0].toUpperCase() + raw.slice(1); ((S.customCats ||= { gasto: [], ingreso: [] })[type] ||= []).push(cat); }
   return cat;
 }
+// cuentas (dónde está la plata): Efectivo, Mercado Pago, bancos…; las de fábrica + las creadas + cualquier medio ya usado en un movimiento
+const allMethods = () => [...METHODS, ...(S.customMethods || []), ...S.tx.map(t => t.method).filter(Boolean)].filter((m, i, a) => a.findIndex(x => norm(x) === norm(m)) === i);
+const findMethod = name => allMethods().find(m => norm(m) === norm(name));
+function ensureMethod(raw) {
+  raw = String(raw || '').trim().replace(/\s+/g, ' ').slice(0, 30);
+  if (!raw) return 'Efectivo';
+  let m = findMethod(raw);
+  if (!m) { m = raw[0].toUpperCase() + raw.slice(1); (S.customMethods ||= []).push(m); }
+  return m;
+}
+// saldo de una cuenta = saldo inicial + ingresos − gastos + traspasos que entraron − traspasos que salieron
+function accBalance(name) {
+  const k = norm(name); let b = Number((S.accInit || {})[name]) || 0;
+  for (const t of S.tx) if (norm(t.method) === k) b += t.type === 'ingreso' ? t.amount : -t.amount;
+  for (const m of S.moves || []) { if (norm(m.from) === k) b -= m.amount; if (norm(m.to) === k) b += m.amount; }
+  return Math.round(b * 100) / 100;
+}
+const accUsed = n => S.tx.some(t => norm(t.method) === norm(n)) || (S.moves || []).some(m => norm(m.from) === norm(n) || norm(m.to) === norm(n)) || !!Number((S.accInit || {})[n]);
 function comboRender(input, showAll) {
-  const ty = input.form.type.value, q = norm(input.value), cats = allCats(ty), exact = cats.some(c => norm(c) === q);
+  const acc = input.dataset.list === 'acc';
+  const q = norm(input.value), cats = acc ? allMethods() : allCats(input.form.type.value), exact = cats.some(c => norm(c) === q);
   const shown = showAll || exact || !q ? cats : cats.filter(c => norm(c).includes(q)).sort((a, b) => (norm(b).startsWith(q) - norm(a).startsWith(q)));
   const raw = input.value.trim(), list = input.parentElement.querySelector('.combo-list');
   list.innerHTML = shown.map(c => `<button type="button" class="combo-opt" data-act="combopick" data-v="${esc(c)}">${esc(c)}</button>`).join('')
@@ -418,19 +440,73 @@ function formTx(t, presetType) {
   const type = t?.type || presetType || 'gasto';
   sheet(t ? 'Editar movimiento' : 'Nuevo movimiento', `<form data-form="tx" data-id="${t?.id || ''}">
     ${t ? '' : `<button type="button" class="link ai-only" data-act="importmov" style="justify-self:start;text-align:left">¿Se te olvidaron varios? Importalos desde una captura o resumen</button>`}
-    <div class="seg"><label><input type="radio" name="type" value="gasto" ${type === 'gasto' ? 'checked' : ''}><span>Gasto</span></label><label><input type="radio" name="type" value="ingreso" ${type === 'ingreso' ? 'checked' : ''}><span>Ingreso</span></label></div>
+    <div class="seg"><label><input type="radio" name="type" value="gasto" ${type === 'gasto' ? 'checked' : ''}><span>Gasto</span></label><label><input type="radio" name="type" value="ingreso" ${type === 'ingreso' ? 'checked' : ''}><span>Ingreso</span></label>${t ? '' : '<label><input type="radio" name="type" value="mover"><span>Mover</span></label>'}</div>
     ${field('Monto', MI(`<input class="money" name="amount" type="text" inputmode="decimal" placeholder="0" value="${t ? fmtIn(t.amount) : ''}" required autofocus>`, true))}
     <label>Categoría<div class="combo"><input type="text" name="cat" autocomplete="off" maxlength="30" placeholder="Elegí o escribí una nueva" role="combobox" aria-expanded="false" required>
       <button type="button" class="combo-btn" data-act="combotoggle" aria-label="Ver categorías">▾</button><div class="combo-list" hidden></div></div></label>
-    <label><span id="method-label">${type === 'gasto' ? 'Pagué con' : 'Me ingresó por'}</span><select name="method">${METHODS.map(m => `<option ${m === (t?.method || S.lastMethod || 'Efectivo') ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+    <label><span id="method-label">${type === 'gasto' ? 'Pagué con' : 'Me ingresó por'}</span><div class="combo"><input type="text" name="method" data-list="acc" autocomplete="off" maxlength="30" placeholder="Elegí o escribí una nueva" role="combobox" aria-expanded="false" required value="${esc(t?.method || S.lastMethod || 'Efectivo')}">
+      <button type="button" class="combo-btn" data-act="combotoggle" aria-label="Ver cuentas">▾</button><div class="combo-list" hidden></div></div></label>
     ${field('Nota (opcional)', `<input type="text" name="note" value="${esc(t?.note || '')}" placeholder="Ej: súper, nafta…">`)}
     ${field('Fecha', `<input type="date" name="date" value="${t?.date || today()}" required>`)}
     <button class="btn block">Guardar</button>
     ${t ? `<button type="button" class="btn danger block" data-act="txdel" data-id="${t.id}">Eliminar</button>` : ''}
   </form>`);
   const f = $('form[data-form=tx]');
-  const fill = () => { const ty = f.type.value; f.cat.value = t && t.type === ty ? t.cat : allCats(ty)[0]; f.querySelector('.combo-list').hidden = true; $('#method-label').textContent = ty === 'gasto' ? 'Pagué con' : 'Me ingresó por'; };
-  f.querySelectorAll('[name=type]').forEach(r => r.onchange = fill); fill();
+  const fill = () => { const ty = f.type.value; f.cat.value = t && t.type === ty ? t.cat : allCats(ty)[0]; f.querySelectorAll('.combo-list').forEach(l => l.hidden = true); $('#method-label').textContent = ty === 'gasto' ? 'Pagué con' : 'Me ingresó por'; };
+  f.querySelectorAll('[name=type]').forEach(r => r.onchange = () => r.value === 'mover' ? formMove() : fill()); fill();
+}
+// Mover plata: de una cuenta a otra (retirar del cajero, cargar Mercado Pago, pagar la tarjeta). No es gasto ni ingreso.
+const comboField = (name, val, label) => `<label>${label}<div class="combo"><input type="text" name="${name}" data-list="acc" autocomplete="off" maxlength="30" placeholder="Elegí o escribí una nueva" role="combobox" aria-expanded="false" required value="${esc(val)}">
+  <button type="button" class="combo-btn" data-act="combotoggle" aria-label="Ver cuentas">▾</button><div class="combo-list" hidden></div></div></label>`;
+function formMove(from, to) {
+  from = from || S.lastMethod || 'Efectivo';
+  to = to || allMethods().find(a => norm(a) !== norm(from)) || '';
+  sheet('Mover plata', `<form data-form="move">
+    <div class="seg"><label><input type="radio" name="type" value="gasto"><span>Gasto</span></label><label><input type="radio" name="type" value="ingreso"><span>Ingreso</span></label><label><input type="radio" name="type" value="mover" checked><span>Mover</span></label></div>
+    <p class="muted" style="margin:0;font-size:14px">Pasá plata de una cuenta a otra: sacar del cajero, cargar Mercado Pago, pagar la tarjeta. No cuenta como gasto ni como ingreso.</p>
+    ${comboField('from', from, 'Desde')}${comboField('to', to, 'Hasta')}
+    ${field('Monto', MI(`<input class="money" name="amount" type="text" inputmode="decimal" placeholder="0" required autofocus>`, true))}
+    ${field('Fecha', `<input type="date" name="date" value="${today()}" required>`)}
+    <div id="mv-effect" style="display:grid;gap:6px"></div>
+    <button class="btn block">Mover plata</button></form>`);
+  const f = $('form[data-form=move]');
+  f.querySelectorAll('[name=type]').forEach(r => r.onchange = () => { if (r.value !== 'mover') formTx(null, r.value); });
+  f.addEventListener('input', moveEffect); moveEffect();
+}
+// muestra cómo queda el saldo de las dos cuentas antes de guardar
+function moveEffect() {
+  const f = $('form[data-form=move]'), box = $('#mv-effect'); if (!f || !box) return;
+  const amt = parseAmount(f.amount.value) || 0;
+  const line = (name, d) => { const n = findMethod(name) || String(name).trim(); if (!n) return ''; const b = accBalance(n); return `<div class="effect"><span class="muted">${esc(n)}</span><b>${money(b)} → <span class="${d > 0 ? 'pos' : 'neg'}">${money(b + d)}</span></b></div>`; };
+  box.innerHTML = amt > 0 ? line(f.from.value, -amt) + line(f.to.value, amt) : '';
+}
+const accDot = n => { const k = METHOD_SLOT[n] || hashSlot(n); return `<div class="dot${k === 5 ? ' d5' : ''}" style="background:var(--c${k})">${stamp(n)}</div>`; };
+function sheetAccounts() {
+  const shown = n => accUsed(n) || (S.customMethods || []).some(c => c === n) || ['Efectivo', 'Mercado Pago'].includes(n);   // los medios de pago de fábrica sin uso no ensucian la lista
+  const rows = allMethods().filter(shown).map(n => { const b = accBalance(n); return `<button class="item" data-act="acc" data-n="${esc(n)}">${accDot(n)}<div class="grow"><div class="t">${esc(n)}</div>${accUsed(n) ? '' : '<div class="s">Sin movimientos todavía</div>'}</div><div class="amt ${b > 0 ? 'pos' : b < 0 ? 'neg' : 'muted'}">${money(b)}</div></button>`; }).join('');
+  const moves = (S.moves || []).slice().sort(byDate).slice(0, 6).map(m => `<button class="item" data-act="movedel" data-id="${m.id}"><div class="grow"><div class="t">${esc(m.from)} → ${esc(m.to)}</div><div class="s">${dayLabel(m.date)} · tocá para deshacer</div></div><div class="amt">${money(m.amount)}</div></button>`).join('');
+  sheet('Mis cuentas', `<p class="muted" style="margin:0;font-size:14px">Cada gasto o ingreso suma o resta de la cuenta que elijas al anotarlo. Un saldo negativo es plata que debés (por ejemplo, la tarjeta).</p>
+    <div class="list">${rows}</div>
+    <div class="btns"><button class="btn" data-act="moveform">Mover plata</button><button class="btn ghost" data-act="newacc">+ Nueva cuenta</button></div>
+    ${moves ? `<h3>Últimos traspasos</h3><div class="list">${moves}</div>` : ''}`);
+}
+function sheetAcc(n) {
+  const k = norm(n), init = Number((S.accInit || {})[n]) || 0, mine = S.tx.filter(t => norm(t.method) === k), mv = S.moves || [];
+  const inc = sum(mine.filter(t => t.type === 'ingreso'), t => t.amount), exp = sum(mine.filter(t => t.type === 'gasto'), t => t.amount);
+  const mi = sum(mv.filter(m => norm(m.to) === k), m => m.amount), mo = sum(mv.filter(m => norm(m.from) === k), m => m.amount), b = accBalance(n);
+  const line = (l, v, c = '') => `<div class="row" style="padding:5px 0;border-top:1px solid var(--line)"><span class="muted">${l}</span><b class="${c}">${v}</b></div>`;
+  const canDel = (S.customMethods || []).some(c => norm(c) === k) && !S.tx.some(t => norm(t.method) === k) && !mv.some(m => norm(m.from) === k || norm(m.to) === k);
+  sheet(n, `<div class="card"><div class="label">Saldo</div><div class="big ${b < 0 ? 'neg' : ''}">${money(b)}</div>
+    ${line('Saldo inicial', money(init))}${line('Ingresos', '+' + money(inc), 'pos')}${line('Gastos', '−' + money(exp), 'neg')}${line('Traspasos que entraron', '+' + money(mi))}${line('Traspasos que salieron', '−' + money(mo))}</div>
+    <form data-form="accinit" data-n="${esc(n)}">${field('Saldo inicial (lo que tenías antes de usar la app)', MI(`<input class="money i-amt" name="init" type="text" inputmode="decimal" placeholder="0" value="${init ? fmtIn(init) : ''}">`, true))}
+    <button class="btn block">Guardar saldo inicial</button></form>
+    <div class="btns"><button class="btn ghost" data-act="moveform" data-from="${esc(n)}">Mover plata desde acá</button>${canDel ? `<button class="btn danger" data-act="accdel" data-n="${esc(n)}">Eliminar cuenta</button>` : ''}</div>`);
+}
+function formNewAcc() {
+  sheet('Nueva cuenta', `<form data-form="newacc">
+    ${field('Nombre', `<input type="text" name="name" maxlength="30" placeholder="Ej: Banco Galicia, Ualá, ahorros" required autofocus>`)}
+    ${field('Saldo inicial (opcional)', MI(`<input class="money i-amt" name="init" type="text" inputmode="decimal" placeholder="0">`, true))}
+    <button class="btn block">Crear cuenta</button></form>`);
 }
 function formDebt(d) {
   sheet(d ? 'Editar deuda' : 'Nueva deuda', `<form data-form="debt" data-id="${d?.id || ''}">
@@ -567,6 +643,7 @@ const act = {
     ${installEv && !matchMedia('(display-mode: standalone)').matches ? '<button class="btn block" data-act="install">Instalar app en este teléfono</button>' : ''}
     <label>Tema<div class="seg">${[['light', 'Claro'], ['dark', 'Oscuro']].map(([v, n]) => `<label><input type="radio" name="theme" value="${v}" ${getTheme() === v ? 'checked' : ''}><span>${n}</span></label>`).join('')}</div></label>
     ${/SamsungBrowser/.test(navigator.userAgent) ? '<p class="muted" style="font-size:13px;margin:0">Estás usando Samsung Internet. Si el tema Claro se ve oscuro, es el modo oscuro de ese navegador: apagalo para sitios web en sus ajustes (☰ → Ajustes → Apariencia, o Labs), o instalá Plata desde Chrome.</p>' : ''}
+    <button class="btn ghost block" data-act="accounts">Mis cuentas y saldos</button>
     <button class="btn ghost block" data-act="cfg">Funciones con IA (opcional)</button>
     <label>Mi alias o CBU, para cobrar por WhatsApp<input type="text" id="me-alias" value="${esc(S.me?.alias || '')}" placeholder="mi.alias.mp" autocomplete="off" autocapitalize="off"></label>
     <p class="muted">Tus datos viven solo en este dispositivo. Hacé backups seguido, sobre todo antes de cambiar de celular.</p>
@@ -578,10 +655,35 @@ const act = {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' }));
     a.download = `plata-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1e3);
   },
+  accounts: sheetAccounts,
+  acc: el => sheetAcc(el.dataset.n),
+  newacc: formNewAcc,
+  moveform: el => formMove(el.dataset.from),
+  movedel: el => { if (confirm('¿Deshacer este traspaso? Cada cuenta vuelve a su saldo anterior.')) { S.moves = (S.moves || []).filter(m => m.id !== el.dataset.id); commit(); sheetAccounts(); } },
+  accdel: el => { if (confirm('¿Eliminar esta cuenta?')) { const n = el.dataset.n; S.customMethods = (S.customMethods || []).filter(c => c !== n); if (S.accInit) delete S.accInit[n]; commit(); sheetAccounts(); } },
   wipe: () => { if (confirm('Esto borra TODOS tus datos de este dispositivo. ¿Seguro?') && confirm('Última chance: ¿borrar todo?')) { S = { tx: [], debts: [], loans: [], groups: [] }; closeSheet(); commit(); } }
 };
 
 const forms = {
+  move(f) {
+    const amount = parseAmount(f.amount.value); if (!(amount > 0)) return toast('Monto inválido');
+    const from = f.from.value.trim(), to = f.to.value.trim();
+    if (!from || !to) return toast('Elegí desde qué cuenta y hacia cuál');
+    if (norm(from) === norm(to)) return toast('Elegí dos cuentas distintas');
+    (S.moves ||= []).push({ id: uid(), from: ensureMethod(from), to: ensureMethod(to), amount: Math.round(amount * 100) / 100, date: f.date.value || today() });
+  },
+  accinit(f) {
+    const v = f.init.value.trim() ? parseAmount(f.init.value) : 0; if (isNaN(v)) return toast('Monto inválido');
+    (S.accInit ||= {})[f.dataset.n] = Math.round(v * 100) / 100;
+    commit(); sheetAcc(f.dataset.n); toast('Guardado'); return 'done';
+  },
+  newacc(f) {
+    const name = f.name.value.trim(); if (!name) return toast('Poné un nombre');
+    if (findMethod(name)) return toast('Esa cuenta ya existe');
+    const v = f.init.value.trim() ? parseAmount(f.init.value) : 0; if (isNaN(v)) return toast('Monto inválido');
+    const n = ensureMethod(name); if (v) (S.accInit ||= {})[n] = Math.round(v * 100) / 100;
+    commit(); sheetAccounts(); toast('Cuenta creada'); return 'done';
+  },
   gpay(f) {
     const g = S.groups.find(x => x.id === openGroup), amount = parseAmount(f.amount.value);
     if (!(amount > 0)) return toast('Monto inválido');
@@ -595,7 +697,7 @@ const forms = {
     if (!raw) return toast('Elegí o escribí una categoría');
     let cat = findCat(type, raw);
     if (!cat) { cat = raw[0].toUpperCase() + raw.slice(1); ((S.customCats ||= { gasto: [], ingreso: [] })[type] ||= []).push(cat); }
-    const o = { id: id || uid(), type, amount, cat, method: f.method.value, note: f.note.value.trim(), date: f.date.value };
+    const o = { id: id || uid(), type, amount, cat, method: ensureMethod(f.method.value), note: f.note.value.trim(), date: f.date.value };
     S.lastMethod = o.method;
     id ? S.tx[S.tx.findIndex(t => t.id === id)] = o : S.tx.push(o);
     month = o.date.slice(0, 7); view = view === 'home' ? 'home' : 'mov';
@@ -660,7 +762,7 @@ document.addEventListener('change', e => {
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
 // campo de categoría: desplegable + escritura con filtro por coincidencia
 act.combotoggle = el => { const i = el.parentElement.querySelector('input'), l = el.parentElement.querySelector('.combo-list'); if (l.hidden) { comboRender(i, true); i.focus({ preventScroll: true }); } else l.hidden = true; };
-act.combopick = el => { const c = el.closest('.combo'); c.querySelector('input').value = el.dataset.v; c.querySelector('.combo-list').hidden = true; };
+act.combopick = el => { const c = el.closest('.combo'); c.querySelector('input').value = el.dataset.v; c.querySelector('.combo-list').hidden = true; moveEffect(); };
 document.addEventListener('input', e => { if (e.target.matches('.combo input')) comboRender(e.target, false); });
 document.addEventListener('input', e => { if (e.target.id === 'me-alias') { (S.me ||= {}).alias = e.target.value.trim(); save(); } });
 document.addEventListener('focusin', e => { if (e.target.matches('.combo input')) { e.target.select(); comboRender(e.target, false); } });

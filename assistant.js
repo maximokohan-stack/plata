@@ -46,7 +46,7 @@ const runTool = {
     if (!raw) throw new Error('Falta la categoría');
     let cat = findCat(type, raw);
     if (!cat) { cat = raw[0].toUpperCase() + raw.slice(1); ((S.customCats ||= { gasto: [], ingreso: [] })[type] ||= []).push(cat); }
-    const m = METHODS.find(x => x.toLowerCase() === String(method || '').toLowerCase()) || undefined;
+    const m = method ? findMethod(method) : undefined;
     const t = { id: uid(), type, amount, cat, method: m, note: note || '', date: /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : today() };
     S.tx.push(t); commit(); return { ok: true, saved: { type, amount, category: cat, method: m, date: t.date } };
   },

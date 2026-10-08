@@ -252,6 +252,8 @@ body:not(.has-ai) .ai-only{display:none!important}
 /* cambio de categoría ↔ método de pago: solo se anima la cinta y la leyenda */
 .swap{animation:swapin .28s var(--ease) both}
 @keyframes swapin{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+/* mover plata: cómo queda el saldo de cada cuenta */
+.effect{background:var(--surface);border-radius:18px;padding:10px 14px;font-size:14px;display:flex;justify-content:space-between;align-items:center;gap:10px}
 main.still>*{animation:none!important}
 .back{min-height:46px;display:inline-flex;align-items:center}
 :focus-visible{outline:3px solid var(--c1);outline-offset:2px}

@@ -34,7 +34,7 @@ function openImport() {
       <span id="imp-status" class="muted" style="font-size:13px"></span></div>
     <div class="muted" style="font-size:12px">Los archivos se envían a tu proveedor de IA (el que elegiste en ⚙) con tu API key para leerlos.</div>
     <div id="imp-wrap" hidden>
-      ${field('Medio de pago de estos movimientos', `<select id="imp-method">${METHODS.map(m => `<option ${m === (S.lastMethod || 'Efectivo') ? 'selected' : ''}>${m}</option>`).join('')}</select>`)}
+      ${field('Medio de pago de estos movimientos', `<select id="imp-method">${allMethods().map(m => `<option ${m === (S.lastMethod || 'Efectivo') ? 'selected' : ''}>${m}</option>`).join('')}</select>`)}
       <div id="imp-list" class="prows" style="margin-top:14px"></div>
       <button class="btn block" id="imp-go" data-act="impgo" style="margin-top:14px"></button>
     </div></div>`);
