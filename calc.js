@@ -10,22 +10,22 @@ const pRow = (mode, i, name = '') => {
   if (mode === 'fair') return `<div class="prow col"><div class="rowtop">${nm}${rm}</div><div class="checks">
     <label><input type="checkbox" class="p-common" checked>🧾 Menú común</label>
     ${CCATS.map(([k, e, n]) => `<label data-cat="${k}" hidden><input type="checkbox" class="p-cat" value="${k}">${e} ${n}</label>`).join('')}</div></div>`;
-  return `<div class="prow">${nm}<input type="text" class="p-amt" inputmode="decimal" placeholder="${mode === 'inc' ? '$ ingreso' : '$ puso'}" aria-label="Monto">${rm}</div>`;
+  return `<div class="prow">${nm}${MI(`<input type="text" class="p-amt" inputmode="decimal" placeholder="${mode === 'inc' ? 'ingreso' : 'puso'}" aria-label="Monto">`)}${rm}</div>`;
 };
 const rowsHtml = (mode, n) => Array.from({ length: n }, (_, i) => pRow(mode, i, i === 0 ? 'Yo' : '')).join('');
 
 const shell = {
-  eq: () => `${field('Total de la cuenta', `<input class="money" id="c-total" type="text" inputmode="decimal" placeholder="0" autofocus>`)}
+  eq: () => `${field('Total de la cuenta', MI(`<input class="money" id="c-total" type="text" inputmode="decimal" placeholder="0" autofocus>`, true))}
     <div class="row"><span class="label">Personas (contándote)</span><span class="row" style="gap:14px"><button class="btn ghost sm" data-act="calcn" data-d="-1" aria-label="Menos">−</button><b id="c-n" style="font-size:22px;min-width:24px;text-align:center">2</b><button class="btn ghost sm" data-act="calcn" data-d="1" aria-label="Más">+</button></span></div>
     <label>Propina<div class="seg">${[0, 10, 15, 20].map((p, i) => `<label><input type="radio" name="tip" value="${p}" ${i ? '' : 'checked'}><span>${p ? p + '%' : 'Sin'}</span></label>`).join('')}</div></label>
     ${field('Redondear lo que pone cada uno', `<select id="c-round"><option value="0">Exacto</option><option value="10">Hacia arriba, a $10</option><option value="50">Hacia arriba, a $50</option><option value="100">Hacia arriba, a $100</option></select>`)}`,
   who: () => `<p class="muted" style="margin:0;font-size:14px">Cargá cuánto puso cada uno. Se reparte en partes iguales y te digo quién le transfiere a quién.</p><div id="c-rows" class="prows">${rowsHtml('who', 3)}</div><button class="btn ghost sm" data-act="calcadd">+ Sumar persona</button>`,
   fair: () => `<p class="muted" style="margin:0;font-size:14px">Lo que no comparten todos se separa y lo pagan solo quienes lo consumieron. El resto va entre los del menú común.</p>
-    ${field('Total de la cuenta', `<input class="money" id="c-total" type="text" inputmode="decimal" placeholder="0" autofocus>`)}
-    <label>Gastos aparte (opcional)<div class="grid2" style="margin:0">${CCATS.map(([k, e, n]) => `<input type="text" id="c-x-${k}" inputmode="decimal" placeholder="${e} ${n}" aria-label="${n}">`).join('')}</div></label>
+    ${field('Total de la cuenta', MI(`<input class="money" id="c-total" type="text" inputmode="decimal" placeholder="0" autofocus>`, true))}
+    <label>Gastos aparte (opcional)<div class="grid2" style="margin:0">${CCATS.map(([k, e, n]) => MI(`<input type="text" id="c-x-${k}" inputmode="decimal" placeholder="${e} ${n}" aria-label="${n}">`)).join('')}</div></label>
     <div id="c-rows" class="prows">${rowsHtml('fair', 3)}</div><button class="btn ghost sm" data-act="calcadd">+ Sumar persona</button>`,
   inc: () => `<p class="muted" style="margin:0;font-size:14px">Cada uno aporta el mismo porcentaje de su ingreso, así nadie banca más de lo que puede.</p>
-    ${field('Total a dividir', `<input class="money" id="c-total" type="text" inputmode="decimal" placeholder="0" autofocus>`)}
+    ${field('Total a dividir', MI(`<input class="money" id="c-total" type="text" inputmode="decimal" placeholder="0" autofocus>`, true))}
     <div id="c-rows" class="prows">${rowsHtml('inc', 2)}</div><button class="btn ghost sm" data-act="calcadd">+ Sumar persona</button>`
 };
 

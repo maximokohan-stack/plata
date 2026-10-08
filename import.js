@@ -20,7 +20,7 @@ const isDup = m => S.tx.some(t => t.type === m.kind && Math.abs(t.amount - m.amo
 const catOpts = (kind, sel) => allCats(kind).map(c => `<option ${norm(c) === norm(sel) ? 'selected' : ''}>${esc(c)}</option>`).join('');
 const impRow = m => `<div class="irow"><div class="imp-top">
   <input type="checkbox" class="m-on" ${m.dup ? '' : 'checked'} aria-label="Importar este movimiento">
-  <input type="text" class="m-note" value="${esc(m.description)}" aria-label="Descripción"><input type="text" class="m-amt" inputmode="decimal" value="${m.amount}" aria-label="Monto"></div>
+  <input type="text" class="m-note" value="${esc(m.description)}" aria-label="Descripción">${MI(`<input type="text" class="m-amt" inputmode="decimal" value="${fmtIn(m.amount)}" aria-label="Monto">`)}</div>
   <div class="imp-bot"><input type="date" class="m-date" value="${m.date}" aria-label="Fecha">
   <select class="m-kind" aria-label="Tipo"><option value="gasto" ${m.kind === 'gasto' ? 'selected' : ''}>Gasto</option><option value="ingreso" ${m.kind === 'ingreso' ? 'selected' : ''}>Ingreso</option></select>
   <select class="m-cat" aria-label="Categoría">${catOpts(m.kind, m.category)}</select></div>

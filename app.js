@@ -40,17 +40,46 @@ if (storedTheme()) applyTheme(storedTheme());
 // ---------- utilidades ----------
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const money = n => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 2, minimumFractionDigits: 0 }).format(n || 0);
+// Montos: el punto separa miles y la coma los decimales (siempre, también en cifras de 4 dígitos: 1.234)
+const NF = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 2, minimumFractionDigits: 0 });
+const money = n => { n = Number(n) || 0; return (n < 0 ? '-' : '') + '$\u00a0' + NF.format(Math.abs(n)); };
+const fmtIn = n => (n === '' || n == null || isNaN(n)) ? '' : NF.format(Math.round(Number(n) * 100) / 100);   // para precargar un campo de monto
+// campo de monto con el símbolo $ fijo a la izquierda
+const MI = (inputHtml, big) => `<span class="mi${big ? ' big' : ''}"><span class="cur" aria-hidden="true">$</span>${inputHtml}</span>`;
 const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36);
 const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
 const sum = (a, f = x => x) => a.reduce((s, x) => s + f(x), 0);
+// Supuesto de la app: la coma es el separador decimal y el punto el de miles ("1.234,5" = 1234,5)
 const parseAmount = v => {
-  let s = String(v ?? '').trim().replace(/\s|\$/g, '');
+  if (typeof v === 'number') return v;
+  const s = String(v ?? '').trim().replace(/[\s$]/g, '');
   if (!s) return NaN;
-  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
-  else if ((s.match(/\./g) || []).length > 1 || /\.\d{3}$/.test(s)) s = s.replace(/\./g, '');
-  return parseFloat(s);
+  return parseFloat(s.replace(/\./g, '').replace(',', '.'));
 };
+// mientras se escribe: agrupa los miles con puntos, deja la coma para los decimales (máx. 2) y conserva el cursor
+function fmtMoneyInput(el, e) {
+  let s = el.value, caret = el.selectionStart ?? s.length;
+  const last = el._last ?? el.defaultValue ?? '';
+  if (e && e.inputType === 'deleteContentBackward' && last.length === s.length + 1 && last[caret] === '.' && last.slice(0, caret) + last.slice(caret + 1) === s) { s = last.slice(0, caret - 1) + last.slice(caret + 1); caret = Math.max(caret - 1, 0); }   // borrar un punto de miles borra el dígito anterior
+  else if (e && e.inputType === 'insertText' && e.data && e.data.includes('.')) s = s.slice(0, caret - e.data.length) + e.data.replace(/\./g, ',') + s.slice(caret);   // un punto tipeado = coma decimal
+  else if (s.length === last.length + 1 && s[caret - 1] === '.' && !(e && e.inputType === 'insertFromPaste')) s = s.slice(0, caret - 1) + ',' + s.slice(caret);
+  else if (e && e.inputType === 'insertFromPaste') {
+    const t = s.replace(/[\s$]/g, '');
+    s = t.includes(',') ? t : /^\d{1,3}(\.\d{3})+$/.test(t) ? t : /^\d+\.\d{1,2}$/.test(t) ? t.replace('.', ',') : t;
+    caret = s.length;
+  }
+  let sig = s.slice(0, caret).replace(/[^\d,]/g, '').length;
+  const clean = s.replace(/[^\d,]/g, ''), ci = clean.indexOf(',');
+  let int = ci < 0 ? clean : clean.slice(0, ci);
+  const dec = ci < 0 ? null : clean.slice(ci + 1).replace(/,/g, '').slice(0, 2);
+  int = int.replace(/^0+(?=\d)/, '');
+  if (!int && dec !== null) { int = '0'; sig++; }
+  const out = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (dec !== null ? ',' + dec : '');
+  el.value = el._last = out;
+  let pos = 0, n = 0; while (pos < out.length && n < sig) { if (/[\d,]/.test(out[pos])) n++; pos++; }
+  try { el.setSelectionRange(pos, pos); } catch { /* algunos teclados no lo permiten */ }
+}
+document.addEventListener('input', e => { if (e.target.matches?.('input[inputmode=decimal]')) fmtMoneyInput(e.target, e); }, true);
 const monthLabel = m => { const s = new Date(m + '-15').toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }).replace(' de ', ' '); return s[0].toUpperCase() + s.slice(1); };
 const shiftMonth = (m, d) => { const [y, mo] = m.split('-').map(Number); const dt = new Date(y, mo - 1 + d, 1); return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0'); };
 const dayLabel = d => new Date(d + 'T12:00').toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -367,7 +396,7 @@ function formTx(t, presetType) {
   sheet(t ? 'Editar movimiento' : 'Nuevo movimiento', `<form data-form="tx" data-id="${t?.id || ''}">
     ${t ? '' : `<button type="button" class="link ai-only" data-act="importmov" style="justify-self:start;text-align:left">¿Se te olvidaron varios? Importalos desde una captura o resumen</button>`}
     <div class="seg"><label><input type="radio" name="type" value="gasto" ${type === 'gasto' ? 'checked' : ''}><span>Gasto</span></label><label><input type="radio" name="type" value="ingreso" ${type === 'ingreso' ? 'checked' : ''}><span>Ingreso</span></label></div>
-    ${field('Monto', `<input class="money" name="amount" type="text" inputmode="decimal" placeholder="0" value="${t ? t.amount : ''}" required autofocus>`)}
+    ${field('Monto', MI(`<input class="money" name="amount" type="text" inputmode="decimal" placeholder="0" value="${t ? fmtIn(t.amount) : ''}" required autofocus>`, true))}
     <label>Categoría<div class="combo"><input type="text" name="cat" autocomplete="off" maxlength="30" placeholder="Elegí o escribí una nueva" role="combobox" aria-expanded="false" required>
       <button type="button" class="combo-btn" data-act="combotoggle" aria-label="Ver categorías">▾</button><div class="combo-list" hidden></div></div></label>
     <label><span id="method-label">${type === 'gasto' ? 'Pagué con' : 'Me ingresó por'}</span><select name="method">${METHODS.map(m => `<option ${m === (t?.method || S.lastMethod || 'Efectivo') ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
@@ -383,7 +412,7 @@ function formTx(t, presetType) {
 function formDebt(d) {
   sheet(d ? 'Editar deuda' : 'Nueva deuda', `<form data-form="debt" data-id="${d?.id || ''}">
     ${field('Nombre', `<input type="text" name="name" value="${esc(d?.name || '')}" placeholder="Ej: Visa, préstamo auto" required autofocus>`)}
-    ${field('Monto total', `<input class="money" name="total" type="text" inputmode="decimal" value="${d ? d.cuota * d.cuotas : ''}" required>`)}
+    ${field('Monto total', MI(`<input class="money" name="total" type="text" inputmode="decimal" placeholder="0" value="${d ? fmtIn(d.cuota * d.cuotas) : ''}" required>`, true))}
     <div class="grid2" style="margin:0">${field('Cuotas', `<input type="number" name="cuotas" min="1" value="${d?.cuotas || 1}" required>`)}
     ${field('Ya pagadas', `<input type="number" name="paid" min="0" value="${d?.cuotasPagas || 0}">`)}</div>
     ${field('Día de vencimiento (opcional)', `<input type="number" name="dueDay" min="1" max="31" value="${d?.dueDay || ''}" placeholder="1–31">`)}
@@ -393,7 +422,7 @@ function formLoan(dir = 'me-deben') {
   sheet('Plata con personas', `<form data-form="loan">
     <div class="seg"><label><input type="radio" name="dir" value="me-deben" ${dir === 'me-deben' ? 'checked' : ''}><span>Me debe</span></label><label><input type="radio" name="dir" value="debo" ${dir === 'debo' ? 'checked' : ''}><span>Le debo</span></label></div>
     ${field('Persona', `<input type="text" name="person" list="ppl" required autofocus placeholder="Nombre">`)}<datalist id="ppl">${peopleList().map(p => `<option value="${esc(p.name)}">`).join('')}</datalist>
-    ${field('Monto', `<input class="money" name="amount" type="text" inputmode="decimal" placeholder="0" required>`)}
+    ${field('Monto', MI(`<input class="money" name="amount" type="text" inputmode="decimal" placeholder="0" required>`, true))}
     ${field('Concepto (opcional)', `<input type="text" name="concept" placeholder="Ej: entradas, cena">`)}
     ${field('WhatsApp (opcional, con código de país)', `<input type="tel" name="phone" placeholder="5491122334455">`)}
     ${field('Fecha', `<input type="date" name="date" value="${today()}">`)}
@@ -409,7 +438,7 @@ function formGroup() {
 function formGexp(g, e) {
   sheet(e ? 'Editar gasto' : 'Gasto del grupo', `<form data-form="gexp" data-id="${e?.id || ''}">
     ${field('Qué fue', `<input type="text" name="desc" value="${esc(e?.desc || '')}" required autofocus placeholder="Ej: cena, nafta">`)}
-    ${field('Monto', `<input class="money" name="amount" type="text" inputmode="decimal" value="${e?.amount || ''}" required>`)}
+    ${field('Monto', MI(`<input class="money" name="amount" type="text" inputmode="decimal" placeholder="0" value="${fmtIn(e?.amount)}" required>`, true))}
     ${field('Pagó', `<select name="paidBy">${g.members.map(m => `<option ${m === (e?.paidBy || 'Yo') ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select>`)}
     <label>Se divide entre<div class="checks">${g.members.map(m => `<label><input type="checkbox" name="split" value="${esc(m)}" ${!e || e.split.includes(m) ? 'checked' : ''}>${esc(m)}</label>`).join('')}</div></label>
     ${field('Fecha', `<input type="date" name="date" value="${e?.date || today()}">`)}
@@ -421,7 +450,7 @@ function sheetPay(g, from, to, amt) {
   const mine = S.me?.alias || '', theirs = g.aliases?.[to] || '';
   sheet('Registrar pago', `<form data-form="gpay"><input type="hidden" name="from" value="${esc(from)}"><input type="hidden" name="to" value="${esc(to)}">
     <div class="card" style="margin:0"><div class="label">${esc(from)} → ${esc(to)}</div><div class="muted" style="font-size:13px">Faltan ${money(amt)} para saldar esta deuda</div></div>
-    ${field('Monto pagado', `<input class="money" name="amount" type="text" inputmode="decimal" value="${amt}" required>`)}
+    ${field('Monto pagado', MI(`<input class="money" name="amount" type="text" inputmode="decimal" value="${fmtIn(amt)}" required>`, true))}
     ${field('Fecha', `<input type="date" name="date" value="${today()}">`)}
     ${to === 'Yo' ? field('Tu alias o CBU, para cobrar', `<input type="text" name="alias" value="${esc(mine)}" placeholder="mi.alias.mp" autocomplete="off" autocapitalize="off">`) + `<button type="button" class="btn ghost block" data-act="gcobrar">Cobrar por WhatsApp</button>` : ''}
     ${from === 'Yo' ? field(`Alias o CBU de ${esc(to)} (opcional)`, `<input type="text" name="alias" value="${esc(theirs)}" placeholder="su.alias" autocomplete="off" autocapitalize="off">`) + `<button type="button" class="btn ghost block" data-act="gcopy">Copiar alias</button>` : ''}
@@ -475,7 +504,7 @@ const act = {
   person: el => sheetPerson(el.dataset.k),
   loanpay: el => {
     const l = S.loans.find(x => x.id === el.dataset.id);
-    sheet('Registrar pago', `<form data-form="loanpay" data-id="${l.id}">${field(`Monto (resta ${money(loanLeft(l))})`, `<input class="money" name="amount" type="text" inputmode="decimal" value="${loanLeft(l)}" required autofocus>`)}
+    sheet('Registrar pago', `<form data-form="loanpay" data-id="${l.id}">${field(`Monto (resta ${money(loanLeft(l))})`, MI(`<input class="money" name="amount" type="text" inputmode="decimal" value="${fmtIn(loanLeft(l))}" required autofocus>`, true))}
       ${field('Fecha', `<input type="date" name="date" value="${today()}">`)}<button class="btn block">Guardar</button></form>`);
   },
   loandel: el => { if (confirm('¿Borrar este registro?')) { const k = S.loans.find(l => l.id === el.dataset.id)?.person.trim().toLowerCase(); S.loans = S.loans.filter(l => l.id !== el.dataset.id); commit(); sheetPerson(k); } },

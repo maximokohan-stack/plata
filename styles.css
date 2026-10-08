@@ -158,8 +158,8 @@ input.money{font:600 32px var(--display);min-height:68px;letter-spacing:-.02em}
 .back{margin:0 0 8px -8px;color:var(--ink);font-weight:600;padding:8px}
 
 .irow{display:grid;gap:8px;background:var(--surface);border-radius:20px;padding:10px}
-.irow-top{display:grid;grid-template-columns:1fr 92px 40px;gap:8px;align-items:center}
-.imp-top{display:grid;grid-template-columns:28px 1fr 96px;gap:8px;align-items:center}
+.irow-top{display:grid;grid-template-columns:1fr 124px 40px;gap:8px;align-items:center}
+.imp-top{display:grid;grid-template-columns:28px 1fr 118px;gap:8px;align-items:center}
 .imp-top input[type=checkbox]{width:22px;height:22px;accent-color:var(--c1)}
 .imp-bot{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .imp-bot .m-cat{grid-column:1/-1}
@@ -238,6 +238,15 @@ body:not(.has-ai) .ai-only{display:none!important}
 .fchips{display:flex;gap:8px;margin:18px 0 6px;flex-wrap:wrap}
 .fchips button{min-height:46px;padding:0 18px;border-radius:99px;background:var(--surface);color:var(--muted);font-weight:500}
 .fchips .on{background:var(--accent);color:var(--accent-ink);font-weight:600}
+/* campos de monto: símbolo $ fijo a la izquierda */
+.mi{position:relative;display:block;min-width:0}
+.mi>.cur{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted);font-weight:600;font-size:15px;pointer-events:none;transition:color .15s}
+.mi:has(input:not(:placeholder-shown))>.cur{color:var(--ink)}
+.mi input[inputmode]{padding-left:26px}
+.imp-top .mi>.cur,.irow-top .mi>.cur{left:10px;font-size:14px}
+.imp-top .mi input[inputmode],.irow-top .mi input[inputmode]{padding-left:22px;padding-right:8px}
+.mi.big>.cur{left:16px;font:600 28px var(--display)}
+.mi.big input[inputmode]{padding-left:42px}
 main.still>*{animation:none!important}
 .back{min-height:46px;display:inline-flex;align-items:center}
 :focus-visible{outline:3px solid var(--c1);outline-offset:2px}

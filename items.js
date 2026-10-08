@@ -35,7 +35,7 @@ async function fileToBlock(file) {
 
 const itemRow = (g, it = {}) => `<div class="irow"><div class="irow-top">
   <input type="text" class="i-name" placeholder="Producto" value="${esc(it.name || '')}" aria-label="Producto">
-  <input type="text" class="i-amt" inputmode="decimal" placeholder="$" value="${it.amount ?? ''}" aria-label="Precio">
+  ${MI(`<input type="text" class="i-amt" inputmode="decimal" placeholder="0" value="${fmtIn(it.amount)}" aria-label="Precio">`)}
   <button type="button" class="icon-btn" data-act="itemrm" aria-label="Quitar producto">✕</button></div>
   <div class="checks">${g.members.map(m => `<label><input type="checkbox" class="i-m" value="${esc(m)}" ${!it.split || it.split.includes(m) ? 'checked' : ''}>${esc(m)}</label>`).join('')}</div></div>`;
 
