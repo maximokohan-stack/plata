@@ -22,11 +22,17 @@
   --accent:#c8f169;--accent-ink:#0f3d2e;--pos:#7ee2a8;--neg:#ff8f80;--warn:#e0a94a;--tint:0,0,0;--hero:#0f3d2e;--hero2:#165240;color-scheme:dark}
 /* colores de las cintas (categorías) y del calendario de gasto por día; validados para claro y oscuro */
 :root{--c1:#1a8a64;--c2:#3c6fd1;--c3:#d9692a;--c4:#b4468d;--c5:#b88f0f;--c6:#8a9a91;
-  --h0:#e3ece7;--h1:#bfe0cf;--h2:#7fc2a2;--h3:#3a9b74;--h4:#0f3d2e;--t0:#8ba598;--t1:#0c1f18;--t2:#0c1f18;--t3:#ffffff;--t4:#c8f169;--alert:#c0302a;--alert-ink:#ffffff}
+  --h0:#e3ece7;--t0:#4f665b;
+  --r1:#f6b5a6;--r2:#e5735f;--r3:#cf4630;--r4:#a82a1c;--g1:#9bd9c2;--g2:#3fb398;--g3:#11806a;--g4:#0b6652;
+  --rt1:#3a1209;--rt2:#2a0f0a;--rt3:#ffffff;--rt4:#ffffff;--gt1:#0c2a1f;--gt2:#06231a;--gt3:#ffffff;--gt4:#ffffff}
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){--c1:#2fa888;--c2:#d9703c;--c3:#5b92ea;--c4:#c46aa0;--c5:#b88d18;--c6:#6f8279;
-  --h0:#1a2c24;--h1:#1f4d3b;--h2:#2e7a5a;--h3:#4fae82;--h4:#a8e8c4;--t0:#5d786b;--t1:#cfe9dc;--t2:#ffffff;--t3:#06140e;--t4:#06140e;--alert:#ff8f80;--alert-ink:#2a0f0a}}
+  --h0:#1a2c24;--t0:#9db8ab;
+  --r1:#4a2420;--r2:#7d3129;--r3:#d9695a;--r4:#ff8f80;--g1:#17382f;--g2:#1f6a54;--g3:#2fa585;--g4:#7ee2a8;
+  --rt1:#ffd2ca;--rt2:#ffffff;--rt3:#1c0905;--rt4:#2a0f0a;--gt1:#c4eedd;--gt2:#ffffff;--gt3:#04150e;--gt4:#04150e}}
 :root[data-theme=dark]{--c1:#2fa888;--c2:#d9703c;--c3:#5b92ea;--c4:#c46aa0;--c5:#b88d18;--c6:#6f8279;
-  --h0:#1a2c24;--h1:#1f4d3b;--h2:#2e7a5a;--h3:#4fae82;--h4:#a8e8c4;--t0:#5d786b;--t1:#cfe9dc;--t2:#ffffff;--t3:#06140e;--t4:#06140e;--alert:#ff8f80;--alert-ink:#2a0f0a}
+  --h0:#1a2c24;--t0:#9db8ab;
+  --r1:#4a2420;--r2:#7d3129;--r3:#d9695a;--r4:#ff8f80;--g1:#17382f;--g2:#1f6a54;--g3:#2fa585;--g4:#7ee2a8;
+  --rt1:#ffd2ca;--rt2:#ffffff;--rt3:#1c0905;--rt4:#2a0f0a;--gt1:#c4eedd;--gt2:#ffffff;--gt3:#04150e;--gt4:#04150e}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 html,body{overscroll-behavior-y:contain}   /* evita recargar sin querer al deslizar hacia abajo */
@@ -225,14 +231,16 @@ body:not(.has-ai) .ai-only{display:none!important}
 .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
 .cal .w{font:500 12px var(--sans);text-align:center;color:var(--muted);padding-bottom:2px}
 .cal .d{aspect-ratio:.82;min-height:48px;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;font:600 14px/1.15 var(--sans);color:var(--ink);position:relative}
-.d small{font:400 10px/1 var(--sans);opacity:.9}
-.d.l0{background:var(--h0);color:var(--t0)}.d.l1{background:var(--h1);color:var(--t1)}.d.l2{background:var(--h2);color:var(--t2)}.d.l3{background:var(--h3);color:var(--t3)}.d.l4{background:var(--h4);color:var(--t4)}
-.d.x{background:var(--alert);color:var(--alert-ink)}.d.x::after{content:"▲";position:absolute;right:5px;top:3px;font-size:8px}
+.d small{font:500 10.5px/1 var(--sans)}.d small b{font-weight:800;margin-right:1px}
+.d.l0{background:var(--h0);color:var(--t0)}
+.d.r1{background:var(--r1);color:var(--rt1)}.d.r2{background:var(--r2);color:var(--rt2)}.d.r3{background:var(--r3);color:var(--rt3)}.d.r4{background:var(--r4);color:var(--rt4)}
+.d.g1{background:var(--g1);color:var(--gt1)}.d.g2{background:var(--g2);color:var(--gt2)}.d.g3{background:var(--g3);color:var(--gt3)}.d.g4{background:var(--g4);color:var(--gt4)}
 .d.f{background:transparent;box-shadow:inset 0 0 0 1.5px var(--line);color:var(--muted)}
 .d.v{visibility:hidden}
 .d.sel{box-shadow:0 0 0 3px var(--bg),0 0 0 5.5px var(--ink)}
 .calkey{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);margin:12px 2px 0;flex-wrap:wrap}
-.calkey i{width:16px;height:12px;border-radius:4px;display:block}
+.calkey i{width:16px;height:12px;border-radius:4px;display:block}.calkey i.mid{background:var(--h0);box-shadow:inset 0 0 0 1px var(--line)}
+.calnote{margin:8px 2px 0;font-size:13px;color:var(--muted)}.calnote b{color:var(--ink)}
 .dayc{margin-top:14px;background:var(--surface);border-radius:28px;padding:8px 16px 4px}
 .dayc .dh{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0 2px;font:600 18px var(--display);letter-spacing:-.02em}
 .dayc .dh span{font:600 16px var(--display)}

@@ -276,23 +276,29 @@ function vMov() {
   const tx = S.tx.filter(t => t.date.startsWith(month)).sort(byDate);
   const inc = sum(tx.filter(t => t.type === 'ingreso'), t => t.amount), exp = sum(tx.filter(t => t.type === 'gasto'), t => t.amount);
   const [y, m] = month.split('-').map(Number), dim = new Date(y, m, 0).getDate(), lead = (new Date(y, m - 1, 1).getDay() + 6) % 7, now = today();
-  const spend = {}; tx.filter(t => t.type === 'gasto').forEach(t => spend[t.date] = (spend[t.date] || 0) + t.amount);
-  const vals = Object.values(spend), avg = vals.length ? sum(vals) / vals.length : 0;
-  const lvl = v => !v ? 0 : v < avg * .5 ? 1 : v < avg ? 2 : v < avg * 1.75 ? 3 : 4, atypical = v => vals.length >= 4 && v >= avg * 2.5;
-  const sel = selDay && selDay.startsWith(month) ? selDay : now.startsWith(month) ? now : (Object.keys(spend).sort().pop() || null);
+  // neto de cada día = ingresos − gastos: rojo si se gastó más de lo que entró, verde si entró más; la intensidad sube con la diferencia
+  const spend = {}, earn = {}; tx.forEach(t => { const o = t.type === 'gasto' ? spend : earn; o[t.date] = (o[t.date] || 0) + t.amount; });
+  const days = [...new Set([...Object.keys(spend), ...Object.keys(earn)])], net = d => (earn[d] || 0) - (spend[d] || 0);
+  const sv = Object.values(spend), nets = days.map(d => Math.abs(net(d))).filter(Boolean);
+  const base = (sv.length ? sum(sv) / sv.length : 0) || (nets.length ? sum(nets) / nets.length : 1);
+  const lvl = v => { const a = Math.abs(v); return a < base * .5 ? 1 : a < base ? 2 : a < base * 2.2 ? 3 : 4; };
+  const sel = selDay && selDay.startsWith(month) ? selDay : now.startsWith(month) ? now : (days.sort().pop() || null);
+  const k = v => (v >= 1000 ? Math.round(v / 1000) + 'k' : String(Math.round(v)));
   let cells = ['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(w => `<div class="w" aria-hidden="true">${w}</div>`).join('') + '<div class="d v"></div>'.repeat(lead);
   for (let i = 1; i <= dim; i++) {
-    const date = `${month}-${String(i).padStart(2, '0')}`, v = spend[date] || 0, cls = ['d', atypical(v) ? 'x' : 'l' + lvl(v), date > now ? 'f' : '', date === sel ? 'sel' : ''].join(' ');
-    cells += `<button class="${cls}" data-act="day" data-d="${date}" aria-pressed="${date === sel}" aria-label="${dayLong(date)}: ${v ? 'gastos ' + money(v) + (atypical(v) ? ', día atípico' : '') : 'sin gastos'}">${i}${v && date <= now ? `<small>${v >= 1000 ? Math.round(v / 1000) + 'k' : Math.round(v)}</small>` : ''}</button>`;
+    const date = `${month}-${String(i).padStart(2, '0')}`, nt = net(date), has = nt !== 0, cls = ['d', has ? (nt > 0 ? 'g' : 'r') + lvl(nt) : 'l0', date > now ? 'f' : '', date === sel ? 'sel' : ''].join(' ');
+    const said = (earn[date] || spend[date]) ? [earn[date] ? 'ingresó ' + money(earn[date]) : '', spend[date] ? 'gastó ' + money(spend[date]) : ''].filter(Boolean).join(', ') : 'sin movimientos';
+    cells += `<button class="${cls}" data-act="day" data-d="${date}" aria-pressed="${date === sel}" aria-label="${dayLong(date)}: ${said}">${i}${has && date <= now ? `<small><b>${nt > 0 ? '+' : '−'}</b>${k(Math.abs(nt))}</small>` : ''}</button>`;
   }
-  const dayTx = sel ? tx.filter(t => t.date === sel) : [], dayExp = sel ? (spend[sel] || 0) : 0;
+  const dayTx = sel ? tx.filter(t => t.date === sel) : [], dayNet = sel ? net(sel) : 0;
   const list = tx.filter(t => movFilter === 'all' || (movFilter === 'gasto') === (t.type === 'gasto'));
-  const net = inc - exp;
+  const balance = inc - exp;
   return `<button class="back" data-act="tab" data-v="home">‹ Inicio</button>` + monthNav()
-    + `<div class="card hero slim"><div class="pair"><div><span class="label">Entró</span><b class="pos">${money(inc)}</b></div><div><span class="label">Salió</span><b class="neg">${money(exp)}</b></div><div><span class="label">Quedó</span><b style="color:${net < 0 ? 'var(--negx)' : 'var(--lime)'}">${money(net)}</b></div></div></div>`
+    + `<div class="card hero slim"><div class="pair"><div><span class="label">Entró</span><b class="pos">${money(inc)}</b></div><div><span class="label">Salió</span><b class="neg">${money(exp)}</b></div><div><span class="label">Quedó</span><b style="color:${balance < 0 ? 'var(--negx)' : 'var(--lime)'}">${money(balance)}</b></div></div></div>`
     + `<div class="cal">${cells}</div>`
-    + `<div class="calkey"><span>menos</span>${['h0', 'h1', 'h2', 'h3', 'h4'].map(h => `<i style="background:var(--${h})"></i>`).join('')}<span>más gasto · cifras en miles</span><span style="margin-left:auto">▲ día atípico</span></div>`
-    + (sel ? `<div class="dayc"><div class="dh"><span style="font:inherit">${dayLong(sel)}</span><span class="${dayExp ? 'neg' : 'muted'}">${dayExp ? '−' + money(dayExp) : 'Sin gastos'}</span></div>${dayTx.length ? txList(dayTx, true) : '<div class="muted" style="padding:4px 0 12px;font-size:14px">Sin movimientos este día.</div>'}</div>` : '')
+    + `<div class="calkey"><span>gastaste más</span>${[4, 3, 2, 1].map(n => `<i style="background:var(--r${n})"></i>`).join('')}<i class="mid"></i>${[1, 2, 3, 4].map(n => `<i style="background:var(--g${n})"></i>`).join('')}<span>ingresó más</span></div>
+      <div class="calnote">Cada día muestra <b>ingresos − gastos</b>, con su signo (cifras en miles). Sin movimientos: gris.</div>`
+    + (sel ? `<div class="dayc"><div class="dh"><span style="font:inherit">${dayLong(sel)}</span><span class="${dayNet > 0 ? 'pos' : dayNet < 0 ? 'neg' : 'muted'}">${dayNet ? (dayNet > 0 ? '+' : '−') + money(Math.abs(dayNet)) : 'Sin diferencia'}</span></div>${dayTx.length ? txList(dayTx, true) : '<div class="muted" style="padding:4px 0 12px;font-size:14px">Sin movimientos este día.</div>'}</div>` : '')
     + `<div class="fchips" role="group" aria-label="Filtrar movimientos">${[['all', 'Todo el mes'], ['gasto', 'Gastos'], ['ingreso', 'Ingresos']].map(([v, n]) => `<button class="${movFilter === v ? 'on' : ''}" data-act="movf" data-v="${v}" aria-pressed="${movFilter === v}">${n}</button>`).join('')}</div>`
     + `<div class="card" style="padding:6px 14px">${txList(list)}</div>`
     + `<div class="btns" style="margin-top:0"><button class="btn ghost sm ai-only" data-act="importmov">Importar desde captura o resumen</button></div>`;
