@@ -169,7 +169,7 @@ function vHome() {
   ${monthNav()}
   <div class="card hero">
     <div class="label">Balance del mes</div>
-    <div class="big ${inc - exp < 0 ? 'neg' : ''}">${money(inc - exp)}</div>
+    <div class="big ${inc - exp < 0 ? 'neg' : ''} ${money(inc - exp).length > 13 ? 'sm' : ''}">${money(inc - exp)}</div>
     <div class="split"><div><span class="label">Ingresos</span><b class="pos">${money(inc)}</b></div><div><span class="label">Gastos</span><b class="neg">${money(exp)}</b></div></div>
   </div>
   <div class="grid2">

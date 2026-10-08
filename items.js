@@ -51,7 +51,7 @@ function formItems(g, e) {
     <div class="grid2" style="margin:0">${field('Pagó', `<select name="paidBy">${g.members.map(m => `<option ${m === (e?.paidBy || 'Yo') ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select>`)}
       ${field('Fecha', `<input type="date" name="date" value="${e?.date || today()}">`)}</div>
     <div id="i-rows" class="prows">${rows}</div>
-    <div class="row"><button type="button" class="btn ghost sm" data-act="itemadd">+ Producto</button><b id="i-total" style="font:600 20px var(--serif)"></b></div>
+    <div class="row"><button type="button" class="btn ghost sm" data-act="itemadd">+ Producto</button><b id="i-total" style="font:600 20px var(--display)"></b></div>
     <div id="i-warn" class="warn" style="font-size:14px" hidden></div>
     <button class="btn block">Guardar compra</button>
     ${e ? `<button type="button" class="btn danger block" data-act="gexpdel" data-id="${e.id}">Eliminar</button>` : ''}</form>`);
