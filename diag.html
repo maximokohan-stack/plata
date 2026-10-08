@@ -8,9 +8,9 @@
   iframe{width:100%;height:150px;border:1px solid #bbb;border-radius:10px;background:#fff}
 </style></head><body>
 <h1>Diagnóstico de tema</h1>
-<p>Sacá una captura de esta pantalla (deslizá para ver los 4 recuadros) y mandásela a Claude. Cada recuadro es una página aparte con una declaración distinta de color. Los que deberían verse <b>crema claro</b> son A, B y C; D es el oscuro a propósito.</p>
+<p id="info" style="font-size:13px;color:#555;word-break:break-word"></p>
+<p>Sacá capturas (deslizá para ver todos los recuadros) y mandáselas a Claude. A, B y C deberían verse <b>crema claro</b>; D es oscuro a propósito. E y F intentan <b>compensar</b> el oscurecimiento invirtiendo los colores: en un navegador normal se ven oscuros/azulados a propósito; en tu teléfono, si el filtro está activo, <b>deberían verse claros</b>.</p>
 <div id="boxes"></div>
-<p id="info" style="font-size:13px;color:#555"></p>
 <script>
 const body = (extra, css, bg, fg, btn) => `<!doctype html><html><head><meta charset="utf-8">${extra}
 <style>html{${css}} body{margin:0;padding:14px;background:${bg};color:${fg};font:16px system-ui,sans-serif}
@@ -22,9 +22,11 @@ const V = [
   ['A · sin declarar nada', body('', '', '#f4f0e6', '#1d1b16', light)],
   ['B · "solo claro" (lo que usé antes)', body('<meta name="color-scheme" content="only light">', 'color-scheme:only light', '#f4f0e6', '#1d1b16', light)],
   ['C · "light dark" con colores claros pintados a mano (la solución nueva)', body('<meta name="color-scheme" content="light dark">', 'color-scheme:light dark', '#f4f0e6', '#1d1b16', light)],
-  ['D · oscuro de verdad', body('<meta name="color-scheme" content="dark">', 'color-scheme:dark', '#15140f', '#efe9d9', ['#a3b3e0', '#141a2e', '#1e1c16'])]
+  ['D · oscuro de verdad', body('<meta name="color-scheme" content="dark">', 'color-scheme:dark', '#15140f', '#efe9d9', ['#a3b3e0', '#141a2e', '#1e1c16'])],
+  ['E · compensar: invertir todo el documento (filter en html)', body('<meta name="color-scheme" content="light dark">', 'color-scheme:light dark;filter:invert(1) hue-rotate(180deg)', '#f4f0e6', '#1d1b16', light)],
+  ['F · compensar: invertir solo el contenido (filter en body)', body('<meta name="color-scheme" content="light dark"><style>body{filter:invert(1) hue-rotate(180deg)}</style>', 'color-scheme:light dark', '#f4f0e6', '#1d1b16', light)]
 ];
 const wrap = document.getElementById('boxes');
 V.forEach(([t, html]) => { const d = document.createElement('div'); d.className = 'box'; d.innerHTML = '<b></b>'; d.firstChild.textContent = t; const f = document.createElement('iframe'); f.srcdoc = html; d.appendChild(f); wrap.appendChild(d); });
-document.getElementById('info').textContent = 'Navegador: ' + navigator.userAgent + ' · el sistema pide oscuro: ' + matchMedia('(prefers-color-scheme: dark)').matches + ' · app instalada: ' + matchMedia('(display-mode: standalone)').matches;
+document.getElementById('info').innerHTML = '<b>Navegador:</b> ' + navigator.userAgent.replace(/</g, '&lt;') + '<br><b>El sistema pide oscuro:</b> ' + matchMedia('(prefers-color-scheme: dark)').matches + ' · <b>app instalada:</b> ' + matchMedia('(display-mode: standalone)').matches;
 </script></body></html>
