@@ -22,7 +22,7 @@ addEventListener('appinstalled', () => { installEv = null; });
 
 // ---------- tema (claro / oscuro) ----------
 // Mientras la persona no elija, se sigue el tema del teléfono; al elegir, queda fijo.
-const THEME_BG = { light: '#f4f0e6', dark: '#15140f' };
+const THEME_BG = { light: '#e9f1ec', dark: '#0b1511' };
 const storedTheme = () => { try { const t = localStorage.getItem('plata.theme'); return t === 'light' || t === 'dark' ? t : null; } catch { return null; } };
 const getTheme = () => storedTheme() || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 function applyTheme(t) {
@@ -165,25 +165,18 @@ function vHome() {
   const owedMe = sum(S.loans.filter(l => l.dir === 'me-deben'), loanLeft);
   const iOwe = sum(S.loans.filter(l => l.dir === 'debo'), loanLeft) + sum(S.debts, debtLeft);
   const due = S.debts.filter(d => d.cuotasPagas < d.cuotas && d.dueDay).map(d => ({ d, n: daysUntil(d.dueDay) })).filter(x => x.n <= 10).sort((a, b) => a.n - b.n);
-  const net = owedMe - iOwe;
   return `
   <div class="card hero">
     <div class="label">Balance general</div>
     <div class="big ${inc - exp < 0 ? 'neg' : ''} ${money(inc - exp).length > 13 ? 'sm' : ''}">${money(inc - exp)}</div>
-    <div class="split"><div><span class="label">Ingresos</span><b class="pos">${money(inc)}</b></div><div><span class="label">Gastos</span><b class="neg">${money(exp)}</b></div></div>
+    <div class="pair"><div><span class="label">Ingresos</span><b class="pos">${money(inc)}</b></div><div><span class="label">Gastos</span><b class="neg">${money(exp)}</b></div></div>
   </div>
-  <div class="grid2">
-    <button class="card" data-act="tab" data-v="debts" data-sub="people" style="text-align:left"><div class="label">Me deben</div><div class="stat pos">${money(owedMe)}</div></button>
-    <button class="card" data-act="tab" data-v="debts" data-sub="cards" style="text-align:left"><div class="label">Debo</div><div class="stat neg">${money(iOwe)}</div></button>
-  </div>
-  <div class="card"><div class="row"><span class="label">Posición neta</span><b class="${net < 0 ? 'neg' : 'pos'}">${money(net)}</b></div>
-    <div class="muted" style="font-size:13px;margin-top:4px">Lo que te deben menos lo que debés (deudas + personas).</div></div>
+  ${owedMe || iOwe ? `<button class="card" data-act="tab" data-v="debts" style="text-align:left;width:100%"><div class="row"><div><div class="label">Me deben</div><div class="stat ${owedMe ? 'pos' : 'muted'}">${money(owedMe)}</div></div><div style="text-align:right"><div class="label">Debo</div><div class="stat ${iOwe ? 'neg' : 'muted'}">${money(iOwe)}</div></div></div></button>` : ''}
   ${due.length ? `<h3>Vencimientos cercanos</h3><div class="list">${due.map(({ d, n }) => `
     <button class="item" data-act="debt" data-id="${d.id}"><div class="dot">${stamp(d.name)}</div><div class="grow"><div class="t">${esc(d.name)}</div>
     <div class="s ${n <= 3 ? 'warn' : ''}">${n === 0 ? 'Vence hoy' : n === 1 ? 'Vence mañana' : 'Vence en ' + n + ' días'}</div></div><div class="amt neg">${money(d.cuota)}</div></button>`).join('')}</div>` : ''}
   ${breakdownCard(tx, monthLabel(cur))}
-  <h3>Últimos movimientos</h3>${txList(S.tx.slice().sort(byDate).slice(0, 5), true)}
-  ${S.tx.length ? `<div class="btns" style="margin-top:0"><button class="btn ghost sm" data-act="tab" data-v="mov">Ver por mes ›</button></div>` : ''}`;
+  <h3>Últimos movimientos</h3><div class="card" style="padding:6px 14px">${txList(S.tx.slice().sort(byDate).slice(0, 5), true)}${S.tx.length ? `<div class="btns" style="margin:4px 0 8px"><button class="btn ghost block" data-act="tab" data-v="mov">Ver por mes</button></div>` : ''}</div>`;
 }
 
 // ---------- gastos por categoría / método de pago (cinta + leyenda) ----------
@@ -210,12 +203,14 @@ function breakdownCard(tx, when) {
   return `<h3>${title}</h3><div class="card">
     <div class="tog" role="group" aria-label="Agrupar gastos por"><button class="${byMet ? '' : 'on'}" data-act="hseg" data-v="cat" aria-pressed="${!byMet}">Categoría</button><button class="${byMet ? 'on' : ''}" data-act="hseg" data-v="met" aria-pressed="${byMet}">Método de pago</button></div>
     <div class="rib" role="img" aria-label="${esc(rows.map(r => r.n + ' ' + Math.round(r.v / total * 100) + '%').join(', '))}">${rows.map(r => `<i style="flex:${r.v};background:var(--c${r.c})"></i>`).join('')}</div>
-    <div class="lgd">${rows.map(r => `<div><i style="background:var(--c${r.c})"></i><span>${esc(r.n)}</span><b>${money(r.v)}</b><small>${Math.round(r.v / total * 100)}%</small></div>`).join('')}</div></div>`;
+    <div class="lgd">${rows.map(r => `<div><span><i style="background:var(--c${r.c})"></i>${esc(r.n)} · ${Math.round(r.v / total * 100)}%</span><b class="neg">${money(r.v)}</b></div>`).join('')}</div></div>`;
 }
+// círculo con la inicial y el color de la categoría (el mismo que en la cinta de Inicio)
+const catDot = c => { const k = CAT_SLOT[c] || hashSlot(c); return `<div class="dot${k === 5 ? ' d5' : ''}" style="background:var(--c${k})">${stamp(c)}</div>`; };
 const byDate = (a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id);
 const monthNav = () => `<div class="month"><button data-act="mprev" aria-label="Mes anterior">‹</button><b>${monthLabel(month)}</b><button data-act="mnext" aria-label="Mes siguiente">›</button></div>`;
 const txList = (arr, compact) => !arr.length ? `<div class="list">${empty('Todavía no hay movimientos', 'Tocá + para cargar el primero.')}</div>` : `<div class="list">${arr.map(t => `
-  <button class="item" data-act="tx" data-id="${t.id}"><div class="dot">${stamp(t.cat)}</div>
+  <button class="item" data-act="tx" data-id="${t.id}">${catDot(t.cat)}
   <div class="grow"><div class="t">${esc(t.note || t.cat)}</div><div class="s">${esc(t.cat)}${t.method ? ' · ' + esc(t.method) : ''} · ${dayLabel(t.date)}</div></div>
   <div class="amt ${t.type === 'ingreso' ? 'pos' : 'neg'}">${t.type === 'ingreso' ? '+' : '−'}${money(t.amount)}</div></button>`).join('')}</div>`;
 
@@ -233,18 +228,18 @@ function vMov() {
   let cells = ['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(w => `<div class="w" aria-hidden="true">${w}</div>`).join('') + '<div class="d v"></div>'.repeat(lead);
   for (let i = 1; i <= dim; i++) {
     const date = `${month}-${String(i).padStart(2, '0')}`, v = spend[date] || 0, cls = ['d', atypical(v) ? 'x' : 'l' + lvl(v), date > now ? 'f' : '', date === sel ? 'sel' : ''].join(' ');
-    cells += `<button class="${cls}" data-act="day" data-d="${date}" aria-pressed="${date === sel}" aria-label="${dayLong(date)}: ${v ? 'gastos ' + money(v) + (atypical(v) ? ', día atípico' : '') : 'sin gastos'}">${i}</button>`;
+    cells += `<button class="${cls}" data-act="day" data-d="${date}" aria-pressed="${date === sel}" aria-label="${dayLong(date)}: ${v ? 'gastos ' + money(v) + (atypical(v) ? ', día atípico' : '') : 'sin gastos'}">${i}${v && date <= now ? `<small>${v >= 1000 ? Math.round(v / 1000) + 'k' : Math.round(v)}</small>` : ''}</button>`;
   }
   const dayTx = sel ? tx.filter(t => t.date === sel) : [], dayExp = sel ? (spend[sel] || 0) : 0;
   const list = tx.filter(t => movFilter === 'all' || (movFilter === 'gasto') === (t.type === 'gasto'));
   const net = inc - exp;
   return `<button class="back" data-act="tab" data-v="home">‹ Inicio</button>` + monthNav()
-    + `<div class="strip"><div><small>Entró</small><b class="pos">${money(inc)}</b></div><div><small>Salió</small><b class="neg">${money(exp)}</b></div><div><small>Quedó</small><b class="${net < 0 ? 'neg' : ''}">${money(net)}</b></div></div>`
+    + `<div class="card hero slim"><div class="pair"><div><span class="label">Entró</span><b class="pos">${money(inc)}</b></div><div><span class="label">Salió</span><b class="neg">${money(exp)}</b></div><div><span class="label">Quedó</span><b style="color:${net < 0 ? 'var(--negx)' : 'var(--lime)'}">${money(net)}</b></div></div></div>`
     + `<div class="cal">${cells}</div>`
-    + `<div class="calkey"><span>menos</span>${['h0', 'h1', 'h2', 'h3', 'h4'].map(h => `<i style="background:var(--${h})"></i>`).join('')}<span>más gasto</span><span style="margin-left:auto">▲ día atípico</span></div>`
+    + `<div class="calkey"><span>menos</span>${['h0', 'h1', 'h2', 'h3', 'h4'].map(h => `<i style="background:var(--${h})"></i>`).join('')}<span>más gasto · cifras en miles</span><span style="margin-left:auto">▲ día atípico</span></div>`
     + (sel ? `<div class="dayc"><div class="dh"><span style="font:inherit">${dayLong(sel)}</span><span class="${dayExp ? 'neg' : 'muted'}">${dayExp ? '−' + money(dayExp) : 'Sin gastos'}</span></div>${dayTx.length ? txList(dayTx, true) : '<div class="muted" style="padding:4px 0 12px;font-size:14px">Sin movimientos este día.</div>'}</div>` : '')
     + `<div class="fchips" role="group" aria-label="Filtrar movimientos">${[['all', 'Todo el mes'], ['gasto', 'Gastos'], ['ingreso', 'Ingresos']].map(([v, n]) => `<button class="${movFilter === v ? 'on' : ''}" data-act="movf" data-v="${v}" aria-pressed="${movFilter === v}">${n}</button>`).join('')}</div>`
-    + txList(list)
+    + `<div class="card" style="padding:6px 14px">${txList(list)}</div>`
     + `<div class="btns" style="margin-top:0"><button class="btn ghost sm ai-only" data-act="importmov">Importar desde captura o resumen</button></div>`;
 }
 
@@ -259,7 +254,7 @@ function vDebts() {
   if (!S.debts.length) return `<div class="list">${empty('Sin deudas cargadas', 'Tarjeta, cuotas, préstamos: cargalos con el botón de abajo y seguí cuánto falta.')}</div>`;
   const tot = sum(S.debts, debtLeft);
   return `<div class="card"><div class="label">Total pendiente</div><div class="big neg">${money(tot)}</div>
-    <div class="muted">Cuotas del mes: <b>${money(sum(S.debts.filter(d => d.cuotasPagas < d.cuotas), d => d.cuota))}</b></div></div>
+    <div class="muted">Cuotas del mes: <b class="neg">${money(sum(S.debts.filter(d => d.cuotasPagas < d.cuotas), d => d.cuota))}</b></div></div>
   <div class="list">${S.debts.map(d => {
     const pct = Math.round(d.cuotasPagas / d.cuotas * 100), fin = d.cuotasPagas >= d.cuotas;
     return `<button class="item" data-act="debt" data-id="${d.id}" style="display:block"><div class="row"><div class="t">${esc(d.name)}</div><div class="amt ${fin ? '' : 'neg'}">${fin ? '<span class="pill pos">Pagada</span>' : money(debtLeft(d))}</div></div>
@@ -294,17 +289,17 @@ function vGroups() {
     if (!g) { openGroup = null; return vGroups(); }
     const bal = groupBalances(g), st = settle(bal), cons = groupConsumption(g), total = sum(g.expenses, e => e.amount);
     return `<button class="back" data-act="gback">‹ Grupos</button>
-    <div class="card hero"><div class="label">${esc(g.name)}</div><div class="big">${money(total)}</div><div class="muted">${g.members.map(esc).join(', ')}</div></div>
+    <div class="card hero"><div class="label">${esc(g.name)} · gastado en total</div><div class="big neg">${money(total)}</div><div class="muted">${g.members.map(esc).join(', ')}</div></div>
     <div class="btns" style="margin:0 0 4px"><button class="btn" data-act="newitems">Compra por producto</button><button class="btn ghost" data-act="newgexp">+ Gasto simple</button></div>
     <h3>Cómo saldar</h3><div class="list">${st.length ? st.map(s => `<button class="item" data-act="gpay" data-from="${esc(s.from)}" data-to="${esc(s.to)}" data-amt="${Math.round(s.amount * 100) / 100}"><div class="grow"><b>${esc(s.from)}</b> le paga a <b>${esc(s.to)}</b><div class="s">Tocá para registrar el pago${s.to === 'Yo' ? ' o cobrar' : ''}</div></div><div class="amt">${money(s.amount)}</div></button>`).join('') : `<div class="item muted">${g.expenses.length ? 'Todo saldado' : 'Todavía no hay nada para saldar'}</div>`}</div>
     ${(g.payments || []).length ? `<h3>Pagos registrados</h3><div class="list">${g.payments.slice().sort(byDate).map(p => `<button class="item" data-act="gpaydel" data-id="${p.id}"><div class="grow"><b>${esc(p.from)}</b> le pagó a <b>${esc(p.to)}</b><div class="s">${dayLabel(p.date)} · tocá para deshacer</div></div><div class="amt pos">${money(p.amount)}</div></button>`).join('')}</div>` : ''}
     ${g.expenses.length ? `<h3>Quién consumió qué</h3><div class="list">${g.members.map(m => { const c = cons[m] || { consumed: 0, paid: 0 }, b = bal[m] || 0; return `<div class="item"><div class="grow"><b>${esc(m)}</b><div class="s">consumió ${money(c.consumed)} · puso ${money(c.paid)}</div></div><div class="amt ${b > 0.005 ? 'pos' : b < -0.005 ? 'neg' : 'muted'}">${b > 0.005 ? '+' : b < -0.005 ? '−' : ''}${money(Math.abs(b))}</div></div>`; }).join('')}</div>` : ''}
-    <h3>Gastos</h3>${g.expenses.length ? `<div class="list">${g.expenses.slice().sort(byDate).map(e => `<button class="item" data-act="gexp" data-id="${e.id}"><div class="grow"><div class="t">${esc(e.desc)}</div><div class="s">Pagó ${esc(e.paidBy)} · ${dayLabel(e.date)} · ${e.items?.length ? e.items.length + (e.items.length === 1 ? ' producto' : ' productos') : e.split.length === g.members.length ? 'todos' : e.split.map(esc).join(', ')}</div></div><div class="amt">${money(e.amount)}</div></button>`).join('')}</div>` : `<div class="list">${empty('Sin gastos', 'Sumá el primero con el botón de arriba.')}</div>`}
+    <h3>Gastos</h3>${g.expenses.length ? `<div class="list">${g.expenses.slice().sort(byDate).map(e => `<button class="item" data-act="gexp" data-id="${e.id}"><div class="grow"><div class="t">${esc(e.desc)}</div><div class="s">Pagó ${esc(e.paidBy)} · ${dayLabel(e.date)} · ${e.items?.length ? e.items.length + (e.items.length === 1 ? ' producto' : ' productos') : e.split.length === g.members.length ? 'todos' : e.split.map(esc).join(', ')}</div></div><div class="amt neg">${money(e.amount)}</div></button>`).join('')}</div>` : `<div class="list">${empty('Sin gastos', 'Sumá el primero con el botón de arriba.')}</div>`}
     <div class="btns"><button class="btn danger sm" data-act="gdel">Eliminar grupo</button></div>`;
   }
   const newGroup = `<div class="btns"><button class="btn" data-act="newgroup">+ Nuevo grupo</button></div>`;
   if (!S.groups.length) return `<div class="list">${empty('Sin grupos', 'Armá uno para un viaje, el depto o una salida larga y llevá la cuenta entre todos.')}</div>` + newGroup;
-  return `<div class="list">${S.groups.map(g => `<button class="item" data-act="group" data-id="${g.id}"><div class="dot">${stamp(g.name)}</div><div class="grow"><div class="t">${esc(g.name)}</div><div class="s">${g.members.length} personas · ${g.expenses.length} ${g.expenses.length === 1 ? 'gasto' : 'gastos'}</div></div><div class="amt">${money(sum(g.expenses, e => e.amount))}</div></button>`).join('')}</div>` + newGroup;
+  return `<div class="list">${S.groups.map(g => `<button class="item" data-act="group" data-id="${g.id}"><div class="dot">${stamp(g.name)}</div><div class="grow"><div class="t">${esc(g.name)}</div><div class="s">${g.members.length} personas · ${g.expenses.length} ${g.expenses.length === 1 ? 'gasto' : 'gastos'}</div></div><div class="amt neg">${money(sum(g.expenses, e => e.amount))}</div></button>`).join('')}</div>` + newGroup;
 }
 
 function render() {

@@ -42,6 +42,6 @@ Archivos principales:
 | `llm.js` | Capa de proveedores de IA (Anthropic, Gemini, OpenRouter) |
 | `assistant.js` | Chat con herramientas |
 | `sw.js`, `manifest.json` | Modo offline e instalación |
-| `fonts/` | Bricolage Grotesque (títulos y cifras) y DM Sans (interfaz), subconjunto latino, licencia SIL OFL 1.1. Alojadas en la app: sin pedidos a terceros y disponibles sin internet |
+| `fonts/` | Outfit (títulos, cifras e interfaz), subconjunto latino, licencia SIL OFL 1.1. Alojadas en la app: sin pedidos a terceros y disponibles sin internet |
 
 Al cambiar archivos de la app, subir el número de versión de `sw.js` (`const V = 'plata-vN'`) para que los celulares tomen la versión nueva.
