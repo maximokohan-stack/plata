@@ -91,7 +91,6 @@ act.onbdone = () => {
   onbClose(); commit();
   toast(rows.some(r => r.amount) ? 'Listo. Tocá + para anotar tu primer gasto' : 'Listo. Tocá + para anotar lo primero');
 };
-act.onb = () => showOnb(true);   // desde Ajustes: volver a ver la bienvenida
 
 document.addEventListener('input', e => { if (e.target.matches?.('#onb .onb-amt')) onbTotal(); });
 document.addEventListener('change', e => {
