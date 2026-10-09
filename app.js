@@ -490,41 +490,57 @@ function formTx(t, presetType) {
     ${field('Monto', MI(`<input class="money" name="amount" type="text" inputmode="decimal" placeholder="0" value="${t ? fmtIn(t.amount) : ''}" required autofocus>`, true))}
     <label>Categoría<div class="combo"><input type="text" name="cat" autocomplete="off" maxlength="30" placeholder="Elegí o escribí una nueva" role="combobox" aria-expanded="false" required>
       <button type="button" class="combo-btn" data-act="combotoggle" aria-label="Ver categorías">▾</button><div class="combo-list" hidden></div></div></label>
-    <label><span id="method-label">${type === 'gasto' ? 'Pagué con' : 'Me ingresó por'}</span><div class="combo"><input type="text" name="method" data-list="acc" autocomplete="off" maxlength="30" placeholder="Elegí o escribí una nueva" role="combobox" aria-expanded="false" required value="${esc(t?.method || S.lastMethod || 'Efectivo')}">
-      <button type="button" class="combo-btn" data-act="combotoggle" aria-label="Ver cuentas">▾</button><div class="combo-list" hidden></div></div></label>
+    ${accPicker('method', t?.method || S.lastMethod || 'Efectivo', type === 'gasto' ? 'Pagué con' : 'Me ingresó por', 'method-label')}
     ${field('Nota (opcional)', `<input type="text" name="note" value="${esc(t?.note || '')}" placeholder="Ej: súper, nafta…">`)}
     ${field('Fecha', `<input type="date" name="date" value="${t?.date || today()}" required>`)}
     <button class="btn block">Guardar</button>
     ${t ? `<button type="button" class="btn danger block" data-act="txdel" data-id="${t.id}">Eliminar</button>` : ''}
   </form>`);
   const f = $('form[data-form=tx]');
-  const fill = () => { const ty = f.type.value; f.cat.value = t && t.type === ty ? t.cat : allCats(ty)[0]; f.querySelectorAll('.combo-list').forEach(l => l.hidden = true); $('#method-label').textContent = ty === 'gasto' ? 'Pagué con' : 'Me ingresó por'; };
+  const fill = () => { const ty = f.type.value; f.cat.value = t && t.type === ty ? t.cat : allCats(ty)[0]; f.querySelectorAll('.combo-list').forEach(l => l.hidden = true); $('#method-label').textContent = ty === 'gasto' ? 'Pagué con' : 'Me ingresó por'; accEffects(f); };
   f.querySelectorAll('[name=type]').forEach(r => r.onchange = () => r.value === 'mover' ? formMove() : fill()); fill();
 }
 // Mover plata: de una cuenta a otra (retirar del cajero, cargar Mercado Pago, pagar la tarjeta). No es gasto ni ingreso.
-const comboField = (name, val, label) => `<label>${label}<div class="combo"><input type="text" name="${name}" data-list="acc" autocomplete="off" maxlength="30" placeholder="Elegí o escribí una nueva" role="combobox" aria-expanded="false" required value="${esc(val)}">
-  <button type="button" class="combo-btn" data-act="combotoggle" aria-label="Ver cuentas">▾</button><div class="combo-list" hidden></div></div></label>`;
+// lista de cuentas con saldo: círculo de selección, nombre, saldo y, a la derecha, cómo queda la cuenta al guardar; "Nueva cuenta" permite escribir una que no está
+function accPicker(name, sel, label, labelId) {
+  const all = allMethods(), top = all.filter(n => accShown(n) || norm(n) === norm(sel)), rest = all.filter(n => !top.includes(n));
+  const row = n => { const on = norm(n) === norm(sel); return `<button type="button" class="rc${on ? ' on' : ''}" role="radio" aria-checked="${on}" data-act="accpick" data-f="${name}" data-n="${esc(n)}"><span class="rb"></span><span><b>${esc(n)}</b><small>Saldo ${money(accBalance(n))}</small></span><span class="am"></span></button>`; };
+  const restOpen = rest.some(n => norm(n) === norm(sel));
+  return `<div class="pk"><div class="label"${labelId ? ` id="${labelId}"` : ''}>${label}</div>
+    <div class="rcards" role="radiogroup" aria-label="${esc(label)}" data-f="${name}">${top.map(row).join('')}${rest.length ? `<button type="button" class="rc more" data-act="accmore" aria-expanded="${restOpen}"><span></span><span>Otros medios ${restOpen ? '▴' : '▾'}</span></button><div class="rcmore"${restOpen ? '' : ' hidden'}>${rest.map(row).join('')}</div>` : ''}
+      <div class="rc add"><span class="rb plus">+</span><button type="button" class="newbtn" data-act="accnew" data-f="${name}">Nueva cuenta</button><input type="text" class="newin" data-f="${name}" maxlength="30" placeholder="Nombre de la cuenta nueva" aria-label="Nombre de la cuenta nueva" hidden></div></div>
+    <input type="hidden" name="${name}" value="${esc(sel)}"></div>`;
+}
+// muestra a la derecha de la cuenta elegida cuánto le quedaría
+function accEffects(f) {
+  if (!f || !f.amount) return;
+  const amt = parseAmount(f.amount.value) || 0, edit = f.dataset.form === 'tx' && f.dataset.id;
+  const delta = { method: f.dataset.form === 'tx' && f.type ? (f.type.value === 'gasto' ? -amt : amt) : 0, from: -amt, to: amt };
+  f.querySelectorAll('.rcards').forEach(g => g.querySelectorAll('.rc[data-n]').forEach(r => {
+    const am = r.querySelector('.am'), d = delta[g.dataset.f];
+    if (r.classList.contains('on') && amt > 0 && !edit) { am.textContent = money(accBalance(r.dataset.n) + d); am.className = 'am ' + (d < 0 ? 'neg' : 'pos'); } else { am.textContent = ''; am.className = 'am'; }
+  }));
+}
+// en Mover plata, la cuenta de origen no puede ser también el destino
+function syncMove(f) {
+  f.querySelectorAll('.rcards[data-f=to] .rc[data-n]').forEach(r => {
+    const same = norm(r.dataset.n) === norm(f.from.value); r.disabled = same;
+    if (same && r.classList.contains('on')) { r.classList.remove('on'); r.setAttribute('aria-checked', 'false'); f.to.value = ''; }
+  });
+}
 function formMove(from, to) {
   from = from || S.lastMethod || 'Efectivo';
   to = to || allMethods().find(a => norm(a) !== norm(from)) || '';
   sheet('Mover plata', `<form data-form="move">
     <div class="seg"><label><input type="radio" name="type" value="gasto"><span>Gasto</span></label><label><input type="radio" name="type" value="ingreso"><span>Ingreso</span></label><label><input type="radio" name="type" value="mover" checked><span>Mover</span></label></div>
     <p class="muted" style="margin:0;font-size:14px">Pasá plata de una cuenta a otra: sacar del cajero, cargar Mercado Pago, pagar la tarjeta. No cuenta como gasto ni como ingreso.</p>
-    ${comboField('from', from, 'Desde')}${comboField('to', to, 'Hasta')}
+    ${accPicker('from', from, 'Desde')}${accPicker('to', to, 'Hasta')}
     ${field('Monto', MI(`<input class="money" name="amount" type="text" inputmode="decimal" placeholder="0" required autofocus>`, true))}
     ${field('Fecha', `<input type="date" name="date" value="${today()}" required>`)}
-    <div id="mv-effect" style="display:grid;gap:6px"></div>
     <button class="btn block">Mover plata</button></form>`);
   const f = $('form[data-form=move]');
   f.querySelectorAll('[name=type]').forEach(r => r.onchange = () => { if (r.value !== 'mover') formTx(null, r.value); });
-  f.addEventListener('input', moveEffect); moveEffect();
-}
-// muestra cómo queda el saldo de las dos cuentas antes de guardar
-function moveEffect() {
-  const f = $('form[data-form=move]'), box = $('#mv-effect'); if (!f || !box) return;
-  const amt = parseAmount(f.amount.value) || 0;
-  const line = (name, d) => { const n = findMethod(name) || String(name).trim(); if (!n) return ''; const b = accBalance(n); return `<div class="effect"><span class="muted">${esc(n)}</span><b>${money(b)} → <span class="${d > 0 ? 'pos' : 'neg'}">${money(b + d)}</span></b></div>`; };
-  box.innerHTML = amt > 0 ? line(f.from.value, -amt) + line(f.to.value, amt) : '';
+  syncMove(f); accEffects(f);
 }
 const accDot = n => { const k = METHOD_SLOT[n] || hashSlot(n); return `<div class="dot${k === 5 ? ' d5' : ''}" style="background:var(--c${k})">${stamp(n)}</div>`; };
 function sheetAccounts() {
@@ -629,6 +645,22 @@ const act = {
   hseg: el => { homeSeg = el.dataset.v; swapBreakdown(); },
   day: el => keepView(() => { selDay = el.dataset.d; }),
   movf: el => keepView(() => { movFilter = el.dataset.v; }),
+  accpick: el => {
+    const f = el.closest('form'), g = el.closest('.rcards');
+    f[el.dataset.f].value = el.dataset.n;
+    g.querySelectorAll('.rc[data-n]').forEach(r => { r.classList.toggle('on', r === el); r.setAttribute('aria-checked', r === el); });
+    const add = g.querySelector('.rc.add'); add.classList.remove('on'); add.querySelector('.newin').hidden = true; add.querySelector('.newbtn').hidden = false;
+    if (f.dataset.form === 'move') syncMove(f);
+    accEffects(f);
+  },
+  accmore: el => { const box = el.nextElementSibling; box.hidden = !box.hidden; el.setAttribute('aria-expanded', !box.hidden); el.lastElementChild.textContent = 'Otros medios ' + (box.hidden ? '▾' : '▴'); },
+  accnew: el => {
+    const f = el.closest('form'), add = el.closest('.rc.add'), i = add.querySelector('.newin');
+    el.closest('.rcards').querySelectorAll('.rc[data-n]').forEach(r => { r.classList.remove('on'); r.setAttribute('aria-checked', 'false'); });
+    f[el.dataset.f].value = ''; el.hidden = true; i.hidden = false; add.classList.add('on'); i.focus();
+    if (f.dataset.form === 'move') syncMove(f);
+    accEffects(f);
+  },
   hide: () => keepView(() => { HIDE = !HIDE; prefSet('plata.hide', HIDE); }),
   hdet: el => { const box = el.nextElementSibling; box.hidden = !box.hidden; homeDet = !box.hidden; prefSet('plata.det', homeDet); el.setAttribute('aria-expanded', homeDet); el.querySelector('span').textContent = homeDet ? 'Detalle ▴' : 'Ver detalle ▾'; },
   // tocar una cuenta del detalle abre Por mes mirando solo esa cuenta
@@ -748,6 +780,7 @@ const forms = {
     if (!raw) return toast('Elegí o escribí una categoría');
     let cat = findCat(type, raw);
     if (!cat) { cat = raw[0].toUpperCase() + raw.slice(1); ((S.customCats ||= { gasto: [], ingreso: [] })[type] ||= []).push(cat); }
+    if (!f.method.value.trim()) return toast('Elegí una cuenta');
     const o = { id: id || uid(), type, amount, cat, method: ensureMethod(f.method.value), note: f.note.value.trim(), date: f.date.value };
     S.lastMethod = o.method;
     id ? S.tx[S.tx.findIndex(t => t.id === id)] = o : S.tx.push(o);
@@ -813,8 +846,13 @@ document.addEventListener('change', e => {
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
 // campo de categoría: desplegable + escritura con filtro por coincidencia
 act.combotoggle = el => { const i = el.parentElement.querySelector('input'), l = el.parentElement.querySelector('.combo-list'); if (l.hidden) { comboRender(i, true); i.focus({ preventScroll: true }); } else l.hidden = true; };
-act.combopick = el => { const c = el.closest('.combo'); c.querySelector('input').value = el.dataset.v; c.querySelector('.combo-list').hidden = true; moveEffect(); };
+act.combopick = el => { const c = el.closest('.combo'); c.querySelector('input').value = el.dataset.v; c.querySelector('.combo-list').hidden = true; };
 document.addEventListener('input', e => { if (e.target.matches('.combo input')) comboRender(e.target, false); });
+document.addEventListener('input', e => {   // cuenta nueva escrita a mano + efecto en el saldo al cambiar el monto
+  const t = e.target;
+  if (t.classList?.contains('newin')) { t.form[t.dataset.f].value = t.value; if (t.form.dataset.form === 'move') syncMove(t.form); }
+  const f = t.closest?.('form[data-form=tx],form[data-form=move]'); if (f) accEffects(f);
+});
 document.addEventListener('input', e => { if (e.target.id === 'me-alias') { (S.me ||= {}).alias = e.target.value.trim(); save(); } });
 document.addEventListener('focusin', e => { if (e.target.matches('.combo input')) { e.target.select(); comboRender(e.target, false); } });
 document.addEventListener('click', e => { if (!e.target.closest('.combo')) document.querySelectorAll('.combo-list').forEach(l => l.hidden = true); });
