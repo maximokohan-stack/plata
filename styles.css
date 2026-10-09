@@ -311,6 +311,11 @@ body:not(.has-ai) .ai-only{display:none!important}
 .acts{display:flex;gap:8px;margin:12px 0 0}.acts .btn{flex:1;min-width:0;padding:0 10px;font-size:15px}
 .lgd.long b{font-size:15px;flex-wrap:wrap;row-gap:0}
 .hero .drow>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hero .drow b{white-space:nowrap}
+/* lista de modelos de IA dentro de la hoja de configuración */
+.mpick{display:grid;gap:4px;max-height:260px;overflow-y:auto;background:var(--surface);border-radius:20px;padding:6px;margin:6px 0 4px}
+.mpick button{text-align:left;padding:9px 12px;border-radius:14px;min-height:48px;display:block;width:100%}
+.mpick b{display:block;font-weight:600;font-size:15px}.mpick small{display:block;color:var(--muted);font-size:12.5px;overflow-wrap:anywhere}
+.mpick button.on{background:var(--accent);color:var(--accent-ink)}.mpick button.on small{color:inherit;opacity:.8}
 main.still>*{animation:none!important}
 .back{min-height:46px;display:inline-flex;align-items:center}
 :focus-visible{outline:3px solid var(--c1);outline-offset:2px}

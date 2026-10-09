@@ -161,7 +161,7 @@ async function listModels(provider, apiKey) {
   if (provider === 'gemini') {
     if (!apiKey) throw new Error('Pegá tu API key primero para ver los modelos.');
     const d = await get('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { 'x-goog-api-key': apiKey });
-    return (d.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent') && /gemini/i.test(m.name))
+    return (d.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent') && /gemini/i.test(m.name) && !/(tts|transcribe|robotics|image|banana|imagen|native-audio|live|embed|aqa|computer-use|deep-research|veo|lyria)/i.test(m.name + ' ' + (m.displayName || '')))
       .map(m => ({ id: m.name.replace(/^models\//, ''), free: false, name: m.displayName || m.name })).sort((a, b) => b.id.localeCompare(a.id));
   }
   if (!apiKey) throw new Error('Pegá tu API key primero para ver los modelos.');

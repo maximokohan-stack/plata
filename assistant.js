@@ -132,19 +132,32 @@ function drawChat() {
 function openChat() { $('#chat').hidden = false; drawChat(); syncHistory(); if (!getCfg().apiKey) openCfg(); }
 function openCfg(provider) {
   const c = getCfg(typeof provider === 'string' ? provider : undefined), P = PROVIDERS[c.provider];
-  const sug = Object.entries(P.models).map(([id, n]) => `<option value="${esc(id)}">${esc(n)}</option>`).join('');
+  cfgModels = Object.entries(P.models).map(([id, name]) => ({ id, name }));
   sheet('Funciones con IA (opcional)', `<form data-form="cfg">
     <p class="muted" style="margin:0">La app funciona completa sin esto. Con una API key se suman: el <b>asistente</b> (preguntale o decile "gasté 8500 en el súper"), <b>escanear tickets y facturas</b> y <b>importar movimientos</b> desde capturas. <b>Cada persona usa su propia cuenta y paga su propio uso.</b></p>
     ${field('Proveedor', `<select name="provider" id="cfg-provider">${Object.entries(PROVIDERS).map(([id, p]) => `<option value="${id}" ${id === c.provider ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>`)}
     <p class="muted" style="margin:0;font-size:14px">Conseguí tu key en <b>${P.keyUrl}</b>. ${esc(P.note)} La key queda solo en este dispositivo y se envía directo a ${esc(P.name)}, junto con lo que el asistente o el lector necesiten consultar.</p>
     ${field('API key', `<input type="password" name="apiKey" autocomplete="off" placeholder="${esc(P.keyHint)}" value="${esc(c.apiKey || '')}">`)}
-    ${field('Modelo', `<input type="text" name="model" id="cfg-model" list="cfg-models" autocomplete="off" value="${esc(c.model)}"><datalist id="cfg-models">${sug}</datalist>`)}
+    ${field('Modelo', `<input type="text" name="model" id="cfg-model" autocomplete="off" autocapitalize="off" value="${esc(c.model)}">`)}
+    <div id="cfg-list" class="mpick" role="listbox" aria-label="Modelos" hidden></div>
     <div class="row" style="justify-content:flex-start;gap:10px;flex-wrap:wrap"><button type="button" class="btn ghost sm" data-act="listmodels">Ver modelos disponibles</button><span id="cfg-status" class="muted" style="font-size:13px"></span></div>
     <div class="muted" style="font-size:13px">Para leer tickets el modelo tiene que aceptar imágenes, y para el asistente, herramientas. Los modelos gratuitos o chicos se equivocan más con precios y fotos borrosas. Creá una key dedicada, con tope de gasto si el proveedor lo permite.</div>
     <button class="btn block">Guardar</button>
     ${c.apiKey ? '<button type="button" class="btn danger block" data-act="cfgdel">Quitar API key de este proveedor</button>' : ''}</form>`);
+  drawModels();
 }
 
+// lista de modelos dentro de la hoja (la lista nativa del teléfono se corta y no deja elegir bien)
+let cfgModels = [];
+function drawModels() {
+  const box = $('#cfg-list'), inp = $('#cfg-model'); if (!box || !inp) return;
+  const q = norm(inp.value), exact = cfgModels.some(m => m.id === inp.value);
+  const list = exact || !q ? cfgModels : cfgModels.filter(m => norm(m.id + ' ' + m.name).includes(q));
+  box.hidden = !cfgModels.length;
+  box.innerHTML = list.length ? list.slice(0, 200).map(m => `<button type="button" role="option" class="${m.id === inp.value ? 'on' : ''}" aria-selected="${m.id === inp.value}" data-act="pickmodel" data-id="${esc(m.id)}"><b>${esc((m.free ? '🆓 ' : '') + (m.name || m.id))}</b>${m.name && m.name !== m.id ? `<small>${esc(m.id)}</small>` : ''}</button>`).join('') : '<div class="muted" style="padding:8px 12px;font-size:14px">Ningún modelo coincide. Podés escribir el nombre exacto igual.</div>';
+}
+document.addEventListener('input', e => { if (e.target.id === 'cfg-model') drawModels(); });
+act.pickmodel = el => { const inp = $('#cfg-model'); inp.value = el.dataset.id; drawModels(); $('#cfg-status').textContent = 'Elegido: ' + el.dataset.id + '. Tocá Guardar.'; };
 forms.cfg = f => {
   const prev = getCfg(), provider = f.provider.value, model = f.model.value.trim() || PROVIDERS[provider].def;
   if (!f.apiKey.value.trim()) return toast('Pegá tu API key');
@@ -164,11 +177,10 @@ act.listmodels = async () => {
   st.textContent = 'Buscando modelos…';
   try {
     const ms = await listModels(prov, key);
-    if (!$('#cfg-models')) return;
-    $('#cfg-models').innerHTML = ms.slice(0, 400).map(m => `<option value="${esc(m.id)}">${esc(m.free ? '🆓 ' : '')}${esc(m.name)}</option>`).join('');
+    if (!$('#cfg-list')) return;
+    cfgModels = ms; drawModels();
     const free = ms.filter(m => m.free).length;
-    st.textContent = `${ms.length} modelos${prov === 'openrouter' ? ' con imágenes y herramientas' : prov === 'openai' ? ' de chat (elegí uno con imágenes, p. ej. GPT-5 o mini)' : ''}${free ? ` · ${free} gratuitos (🆓)` : ''}. Tocá el campo Modelo para elegir; si lo vaciás aparecen todos.`;
-    const inp = $('#cfg-model'); inp.value = ''; inp.focus();
+    st.textContent = `${ms.length} modelos${prov === 'openrouter' ? ' con imágenes y herramientas' : ''}${free ? ` · ${free} gratuitos (🆓)` : ''}. Tocá uno para elegirlo, o escribí arriba para buscar.`;
   } catch (e) { st.textContent = e.message; }
 };
 document.addEventListener('change', e => { if (e.target.id === 'cfg-provider') openCfg(e.target.value); });
