@@ -46,18 +46,23 @@ function syncAi() { document.body.classList.toggle('has-ai', !!getCfg().apiKey);
 // ---------- llamada unificada ----------
 const rawErr = (res, data, cfg) => {
   const m = data?.error?.message || data?.error?.type || res.statusText;
-  if (res.status === 401 || res.status === 403) return new Error('La API key no es válida o no tiene permiso. Revisala en ⚙.');
+  if (res.status === 401 || res.status === 403 || (res.status === 400 && /api key|api_key|invalid.*key|key.*invalid/i.test(String(m)))) return new Error('La API key no es válida o no tiene permiso. Revisala en ⚙ (que no tenga espacios ni le falte un pedazo).');
+  if (res.status >= 500) return new Error(`${PROVIDERS[cfg.provider].name} está saturado en este momento (no es tu key ni la app). Probá de nuevo en unos segundos o elegí otro modelo en ⚙, por ejemplo uno "flash-lite" o "mini".`);
   if (res.status === 429) return new Error('Demasiados pedidos o sin crédito/cuota. Probá en un rato.');
   if (res.status === 404 || (res.status === 400 && /model/i.test(String(m)) && /(not found|not exist|invalid|unknown|no endpoints)/i.test(String(m))))
     return new Error(`El modelo "${cfg.model}" no está disponible en ${PROVIDERS[cfg.provider].name}. Elegí otro en ⚙ con "Ver modelos disponibles".`);
   return new Error(`Error ${res.status}: ${m}`);
 };
+// si el proveedor está saturado (5xx) se reintenta solo un par de veces antes de avisar
 const postJson = async (url, headers, body, cfg) => {
-  let res; try { res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) }); }
-  catch { throw new Error('No se pudo conectar. ¿Tenés internet?'); }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw rawErr(res, data, cfg);
-  return data;
+  for (let i = 0; ; i++) {
+    let res; try { res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) }); }
+    catch { throw new Error('No se pudo conectar. ¿Tenés internet?'); }
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) return data;
+    if (res.status >= 500 && i < 2) { await new Promise(r => setTimeout(r, 1500 * (i + 1))); continue; }
+    throw rawErr(res, data, cfg);
+  }
 };
 
 // req: { system, messages, tools?, maxTokens, effort? }  ->  { content: bloques, stop: 'end_turn'|'tool_use'|'max_tokens'|'refusal' }
