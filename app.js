@@ -801,6 +801,7 @@ const act = {
     <div class="btns"><button class="btn" data-act="export">Exportar backup</button>
     <label class="btn ghost" style="cursor:pointer">Importar backup<input type="file" accept="application/json" id="imp" hidden></label>
     <button class="btn danger" data-act="wipe">Borrar todo</button></div>
+    <button class="btn ghost sm" data-act="onb" style="align-self:flex-start">Ver la bienvenida otra vez</button>
     <div class="row" style="margin-top:6px"><span id="app-ver" class="muted" style="font-size:13px"></span><button class="btn ghost sm" data-act="checkupdate">Buscar actualización</button></div>`); showVersion(); },
   export: () => {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' }));
@@ -932,6 +933,8 @@ document.addEventListener('click', e => { if (!e.target.closest('.combo')) docum
 (async () => {
   await load();
   render();
+  if (document.readyState === 'loading') await new Promise(r => document.addEventListener('DOMContentLoaded', r));   // onboarding.js se carga después de este archivo
+  startOnboarding();   // bienvenida de la primera vez
   // accesos directos (mantener apretado el ícono): ?add=gasto | ingreso | import
   const add = new URLSearchParams(location.search).get('add');
   if (add) { history.replaceState(null, '', location.pathname); add === 'import' ? act.importmov() : formTx(null, add === 'ingreso' ? 'ingreso' : 'gasto'); }

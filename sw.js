@@ -1,5 +1,5 @@
-const V = 'plata-v50';
-const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'llm.js', 'assistant.js', 'calc.js', 'items.js', 'import.js', 'manifest.json', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-mono-512.png', 'fonts/outfit.woff2'];
+const V = 'plata-v51';
+const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'llm.js', 'assistant.js', 'calc.js', 'items.js', 'import.js', 'onboarding.js', 'manifest.json', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-mono-512.png', 'fonts/outfit.woff2'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(V).then(c => Promise.all(SHELL.map(u => c.add(new Request(u, { cache: 'reload' }))))).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(k => Promise.all(k.filter(x => x !== V).map(x => caches.delete(x)))).then(() => self.clients.claim())); });
 // Solo archivos propios de la app (nunca las llamadas a los proveedores de IA). Red primero; si la red tarda más de 4 s o falla, se usa la copia guardada.

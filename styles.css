@@ -320,6 +320,22 @@ body:not(.has-ai) .ai-only{display:none!important}
 .mpick button{text-align:left;padding:9px 12px;border-radius:14px;min-height:48px;display:block;width:100%}
 .mpick b{display:block;font-weight:600;font-size:15px}.mpick small{display:block;color:var(--muted);font-size:12.5px;overflow-wrap:anywhere}
 .mpick button.on{background:var(--accent);color:var(--accent-ink)}.mpick button.on small{color:inherit;opacity:.8}
+/* bienvenida (primera vez) */
+.onb{position:fixed;inset:0;z-index:60;background:var(--bg);overflow-y:auto;padding:calc(env(safe-area-inset-top) + 22px) 22px calc(22px + env(safe-area-inset-bottom));display:flex;flex-direction:column;max-width:640px;margin:0 auto}
+.onb[hidden]{display:none}
+.onb>*{flex:none}.onb h1{font:600 31px/1.1 var(--display);letter-spacing:-.03em;margin:18px 0 8px;outline:0}.onb-lead{font-size:16.5px;color:var(--muted);margin:0 0 20px}
+.onb-push{flex:1 0 12px}.onb-logo{width:84px;height:84px;border-radius:24px;display:block;margin-top:30px}
+.onb-top{display:flex;align-items:center;gap:10px}.onb-top .onb-dots{flex:1}.onb-back{width:44px;height:44px;border-radius:50%;font-size:28px;line-height:1;color:var(--muted);margin-left:-10px}
+.onb-dots{display:flex;gap:6px}.onb-dots i{height:6px;flex:1;border-radius:99px;background:var(--chip)}.onb-dots i.on{background:var(--accent)}
+.onb-skip{color:var(--muted);font-weight:600;min-height:48px;display:flex;align-items:center;justify-content:center;width:100%;text-align:center}
+.onb-pts{display:grid;gap:14px;margin:6px 0 22px}.onb-pts>div{display:flex;gap:14px;align-items:flex-start}
+.onb-pts .ico{width:44px;height:44px;border-radius:14px;background:var(--surface);display:grid;place-items:center;flex:none;color:var(--accent)}
+.onb-pts svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.onb-pts p{margin:0}.onb-pts b{display:block;font-weight:600}.onb-pts span{display:block;color:var(--muted);font-size:14.5px;line-height:1.35}
+.onb-acc{display:grid;grid-template-columns:44px 1fr;gap:12px;align-items:center;margin:0 0 10px}.onb-acc .dot{width:44px;height:44px}
+.onb-acc label{margin:0;display:grid;gap:4px}.onb-acc .nm{font-weight:600}.onb-acc .mi input{font:600 20px var(--display);height:52px}
+.onb-sum{display:flex;justify-content:space-between;align-items:baseline;background:var(--surface);border-radius:22px;padding:14px 18px;margin:6px 0 14px}.onb-sum b{font:600 24px var(--display)}
+body.onb-open{overflow:hidden}
 main.still>*{animation:none!important}
 .back{min-height:46px;display:inline-flex;align-items:center}
 :focus-visible{outline:3px solid var(--c1);outline-offset:2px}
