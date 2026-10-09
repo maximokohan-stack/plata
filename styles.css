@@ -295,6 +295,8 @@ body:not(.has-ai) .ai-only{display:none!important}
 .rc.add .newbtn{text-align:left;font-weight:600;color:var(--c1);min-height:44px}.rc.add .newbtn[hidden],.rc.add .newin[hidden]{display:none}
 .rc.add .newin{min-height:44px;box-shadow:none;background:transparent;padding:0;border-radius:0;font-size:16px}
 .rc.add .newin:focus{box-shadow:none}
+.item .ch{color:var(--muted);font-size:22px;flex:none}
+.sheet h3:first-child{margin-top:4px}
 main.still>*{animation:none!important}
 .back{min-height:46px;display:inline-flex;align-items:center}
 :focus-visible{outline:3px solid var(--c1);outline-offset:2px}

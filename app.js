@@ -726,9 +726,14 @@ const act = {
     ${installEv && !matchMedia('(display-mode: standalone)').matches ? '<button class="btn block" data-act="install">Instalar app en este teléfono</button>' : ''}
     <label>Tema<div class="seg">${[['light', 'Claro'], ['dark', 'Oscuro']].map(([v, n]) => `<label><input type="radio" name="theme" value="${v}" ${getTheme() === v ? 'checked' : ''}><span>${n}</span></label>`).join('')}</div></label>
     ${/SamsungBrowser/.test(navigator.userAgent) ? '<p class="muted" style="font-size:13px;margin:0">Estás usando Samsung Internet. Si el tema Claro se ve oscuro, es el modo oscuro de ese navegador: apagalo para sitios web en sus ajustes (☰ → Ajustes → Apariencia, o Labs), o instalá Plata desde Chrome.</p>' : ''}
-    <button class="btn ghost block" data-act="cfg">Funciones con IA (opcional)</button>
+    <h3>Cuentas</h3>
+    <div class="card" style="padding:2px 14px"><button class="item" data-act="accounts"><div class="grow"><div class="t">Mis cuentas y saldos</div><div class="s">Saldo inicial de cada cuenta, traspasos y cuentas nuevas</div></div><span class="ch" aria-hidden="true">›</span></button></div>
+    <h3>Funciones con IA</h3>
+    <div class="card" style="padding:2px 14px"><button class="item" data-act="cfg"><div class="grow"><div class="t">Configurar la IA</div><div class="s">Opcional: asistente, escanear tickets e importar movimientos</div></div><span class="ch" aria-hidden="true">›</span></button></div>
+    <h3>Para cobrar</h3>
     <label>Mi alias o CBU, para cobrar por WhatsApp<input type="text" id="me-alias" value="${esc(S.me?.alias || '')}" placeholder="mi.alias.mp" autocomplete="off" autocapitalize="off"></label>
-    <p class="muted">Tus datos viven solo en este dispositivo. Hacé backups seguido, sobre todo antes de cambiar de celular.</p>
+    <h3>Tus datos</h3>
+    <p class="muted" style="margin:0">Viven solo en este dispositivo. Hacé backups seguido, sobre todo antes de cambiar de celular.</p>
     <div class="btns"><button class="btn" data-act="export">Exportar backup</button>
     <label class="btn ghost" style="cursor:pointer">Importar backup<input type="file" accept="application/json" id="imp" hidden></label>
     <button class="btn danger" data-act="wipe">Borrar todo</button></div>
