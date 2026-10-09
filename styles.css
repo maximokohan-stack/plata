@@ -97,6 +97,8 @@ main>.list{background:var(--surface);border-radius:28px;padding:4px 14px}
 .dot{width:44px;height:44px;border-radius:50%;background:var(--chip);display:grid;place-items:center;font:600 18px var(--display);flex:none;color:var(--ink)}
 .dot[style*="--c"]{color:#fff}
 .dot.d5{color:#1d1500}
+.dot svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.dayh{display:flex;justify-content:space-between;align-items:baseline;padding:12px 4px 2px;font-size:13px;font-weight:600;color:var(--muted)}.dayh:first-child{padding-top:6px}.dayh span::first-letter{text-transform:uppercase}.dayh b{font-weight:600}
 .bar{height:6px;border-radius:99px;background:var(--chip);overflow:hidden;margin-top:8px}
 .bar>i{display:block;height:100%;background:var(--c1);border-radius:99px;transition:width .5s var(--ease)}
 .catrow{margin:12px 0}.catrow .row{font-size:15px}

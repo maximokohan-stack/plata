@@ -242,7 +242,7 @@ function vHome() {
     <button class="item" data-act="debt" data-id="${d.id}"><div class="dot">${stamp(d.name)}</div><div class="grow"><div class="t">${esc(d.name)}</div>
     <div class="s ${n <= 3 ? 'warn' : ''}">${n === 0 ? 'Vence hoy' : n === 1 ? 'Vence mañana' : 'Vence en ' + n + ' días'}</div></div><div class="amt neg">${money(d.cuota)}</div></button>`).join('')}</div>` : ''}
   <div id="bk">${breakdownCard(tx, monthLabel(cur))}</div>
-  <h3>Últimos movimientos</h3><div class="card" style="padding:6px 14px">${txList(S.tx.slice().sort(byDate).slice(0, 5), true)}${S.tx.length ? `<div class="btns" style="margin:4px 0 8px"><button class="btn ghost block" data-act="tab" data-v="mov">Ver por mes</button></div>` : ''}</div>`;
+  <h3>Últimos movimientos</h3><div class="card" style="padding:6px 14px">${txList(S.tx.slice().sort(byDate).slice(0, 5))}${S.tx.length ? `<div class="btns" style="margin:4px 0 8px"><button class="btn ghost block" data-act="tab" data-v="mov">Ver por mes</button></div>` : ''}</div>`;
 }
 
 // ---------- gastos por categoría / método de pago (cinta + leyenda) ----------
@@ -280,20 +280,55 @@ function swapBreakdown() {
   box.querySelectorAll('.tog button').forEach(b => { const on = b.dataset.v === homeSeg; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
   for (const sel of ['.rib', '.lgd']) { const a = box.querySelector(sel), b = tmp.querySelector(sel); if (a && b) { b.classList.add('swap'); a.replaceWith(b); } }
 }
-// círculo con la inicial y el color de la categoría (el mismo que en la cinta de Inicio)
-const catDot = c => { const k = CAT_SLOT[c] || hashSlot(c); return `<div class="dot${k === 5 ? ' d5' : ''}" style="background:var(--c${k})">${stamp(c)}</div>`; };
+// círculo con el ícono y el color de la categoría (el mismo que en la cinta de Inicio); sin ícono propio queda la inicial
+const CAT_SVG = {
+  Comida: '<path d="M7 3v8M4.5 3v5a2.5 2.5 0 0 0 5 0V3M7 11v10M17 21V3c-2.5 1.5-3.5 4-3.5 7.5H17"/>',
+  Transporte: '<rect x="4" y="3.5" width="16" height="13" rx="3"/><path d="M4 11h16M8 20v-3.5M16 20v-3.5"/><circle cx="8.5" cy="14" r=".6"/><circle cx="15.5" cy="14" r=".6"/>',
+  Super: '<path d="M3 4h2.5l2 11h10l2-8H6.5"/><circle cx="9" cy="19" r="1.3"/><circle cx="17" cy="19" r="1.3"/>',
+  Ocio: '<path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8 6.8 19.6l1-5.8L3.5 9.7l5.9-.8z"/>',
+  Salud: '<path d="M12 5v14M5 12h14"/>',
+  Hogar: '<path d="M4 11l8-7 8 7M6 10v10h12V10"/>',
+  Compras: '<path d="M5 8h14l-1 12H6L5 8zM9 8a3 3 0 0 1 6 0"/>',
+  Servicios: '<path d="M13 3L5 13h6l-1 8 8-10h-6z"/>',
+  Educación: '<path d="M4 5.5C6 4.5 9 4.5 12 6c3-1.5 6-1.5 8-.5V19c-2-1-5-1-8 .5-3-1.5-6-1.5-8-.5zM12 6v13.5"/>',
+  Deudas: '<rect x="3" y="6" width="18" height="12" rx="3"/><path d="M3 10.5h18"/>',
+  Otros: '<circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18" cy="12" r="1.2"/>',
+  Sueldo: '<path d="M12 4v13M6.5 11.5L12 17l5.5-5.5M5 21h14"/>',
+  Freelance: '<path d="M7 3h8l4 4v14H7zM15 3v4h4"/>',
+  'Otros ingresos': '<path d="M12 5v14M5 12h14"/>'
+};
+// categorías que creó la persona: se reconocen por la palabra (café, súper, nafta…); si no, queda la inicial
+const CAT_WORDS = [[/caf[eé]|resto|comida|almuerzo|cena|delivery|pizza/, 'Comida'], [/super|almac[eé]n|verdul|carnic|mercado/, 'Super'], [/nafta|combust|subte|colectivo|bondi|uber|taxi|peaje|tren/, 'Transporte'], [/alquiler|expensas|casa|hogar/, 'Hogar'], [/farmac|m[eé]dic|salud|gym|gimnas/, 'Salud'], [/cine|salida|ocio|juego|netflix|spotify/, 'Ocio'], [/luz|gas|agua|internet|wifi|tel[eé]f|servicio/, 'Servicios'], [/ropa|compra/, 'Compras'], [/curso|escuela|facultad|libro|educaci/, 'Educación']];
+const catSvg = c => CAT_SVG[c] || (CAT_SVG[(CAT_WORDS.find(([re]) => re.test(norm(c))) || [])[1]] ?? '');
+const catDot = c => {
+  const k = CAT_SLOT[c] || hashSlot(c), p = catSvg(c);
+  return `<div class="dot${k === 5 ? ' d5' : ''}" style="background:var(--c${k})">${p ? `<svg viewBox="0 0 24 24" aria-hidden="true">${p}</svg>` : stamp(c)}</div>`;
+};
 const byDate = (a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id);
 const monthNav = () => `<div class="month"><button data-act="mprev" aria-label="Mes anterior">‹</button><b>${monthLabel(month)}</b><button data-act="mnext" aria-label="Mes siguiente">›</button></div>`;
 const txItem = t => `
   <button class="item" data-act="tx" data-id="${t.id}">${catDot(t.cat)}
-  <div class="grow"><div class="t">${esc(t.note || t.cat)}</div><div class="s">${esc(t.cat)}${t.method ? ' · ' + esc(t.method) : ''} · ${dayLabel(t.date)}</div></div>
+  <div class="grow"><div class="t">${esc(t.note || t.cat)}</div><div class="s">${esc([t.note ? t.cat : '', t.method].filter(Boolean).join(' · ') || ' ')}</div></div>
   <div class="amt ${t.type === 'ingreso' ? 'pos' : 'neg'}">${t.type === 'ingreso' ? '+' : '−'}${money(t.amount)}</div></button>`;
 // un traspaso entre cuentas no es ingreso ni gasto: va con el símbolo ⇄ y sin color
 const moveItem = t => `
   <button class="item" data-act="mvundo" data-id="${t.id}"><div class="dot tr">⇄</div>
-  <div class="grow"><div class="t">${t.out ? 'Traspaso a ' : 'Traspaso desde '}${esc(t.other)}</div><div class="s">${dayLabel(t.date)} · tocá para deshacer</div></div>
+  <div class="grow"><div class="t">${t.out ? 'Traspaso a ' : 'Traspaso desde '}${esc(t.other)}</div><div class="s">Tocá para deshacer</div></div>
   <div class="amt">${t.amount > 0 ? '+' : '−'}${money(Math.abs(t.amount))}</div></button>`;
-const txList = (arr, compact) => !arr.length ? `<div class="list">${empty('Todavía no hay movimientos', 'Tocá + para cargar el primero.')}</div>` : `<div class="list">${arr.map(t => t._m ? moveItem(t) : txItem(t)).join('')}</div>`;
+const dayHead = d => { const t = today(), y = new Date(t + 'T12:00'); y.setDate(y.getDate() - 1); return d === t ? 'Hoy' : d === y.toISOString().slice(0, 10) ? 'Ayer' : dayLabel(d); };
+const txList = (arr, compact) => {
+  if (!arr.length) return `<div class="list">${empty('Todavía no hay movimientos', 'Tocá + para cargar el primero.')}</div>`;
+  const row = t => t._m ? moveItem(t) : txItem(t);
+  if (compact) return `<div class="list">${arr.map(row).join('')}</div>`;
+  let out = '', i = 0;
+  while (i < arr.length) {
+    const d = arr[i].date, grp = [];
+    while (i < arr.length && arr[i].date === d) grp.push(arr[i++]);
+    const gasto = sum(grp.filter(t => !t._m && t.type === 'gasto'), t => t.amount);
+    out += `<div class="dayh"><span>${dayHead(d)}</span><b>${gasto ? '−' + money(gasto) : 'Sin gastos'}</b></div>${grp.map(row).join('')}`;
+  }
+  return `<div class="list">${out}</div>`;
+};
 // movimientos y traspasos de una cuenta (más recientes primero); inRange decide qué fechas entran
 function accRows(name, inRange) {
   const k = norm(name);
