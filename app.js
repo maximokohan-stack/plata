@@ -42,7 +42,12 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // Montos: el punto separa miles y la coma los decimales (siempre, también en cifras de 4 dígitos: 1.234)
 const NF = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 2, minimumFractionDigits: 0 });
-const money = n => { n = Math.round((Number(n) || 0) * 100) / 100; return (n < 0 ? '-' : '') + '$\u00a0' + NF.format(Math.abs(n)); };
+// ojo de "ocultar montos": mientras se dibuja una pantalla principal (Inicio, Por mes, Deudas, Grupos) las cifras salen como $ ••••
+const prefGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v === '1'; } catch { return d; } };
+const prefSet = (k, v) => { try { localStorage.setItem(k, v ? '1' : '0'); } catch { } };
+let HIDE = prefGet('plata.hide', false), masking = false, homeDet = prefGet('plata.det', false);
+const withMask = fn => { masking = HIDE; try { return fn(); } finally { masking = false; } };
+const money = n => { if (masking) return '$ ••••'; n = Math.round((Number(n) || 0) * 100) / 100; return (n < 0 ? '-' : '') + '$ ' + NF.format(Math.abs(n)); };
 const fmtIn = n => (n === '' || n == null || isNaN(n)) ? '' : NF.format(Math.round(Number(n) * 100) / 100);   // para precargar un campo de monto
 // campo de monto con el símbolo $ fijo a la izquierda
 const MI = (inputHtml, big) => `<span class="mi${big ? ' big' : ''}"><span class="cur" aria-hidden="true">$</span>${inputHtml}</span>`;
@@ -211,10 +216,24 @@ function vHome() {
   const owedMe = sum(S.loans.filter(l => l.dir === 'me-deben'), loanLeft);
   const iOwe = sum(S.loans.filter(l => l.dir === 'debo'), loanLeft) + sum(S.debts, debtLeft);
   const due = S.debts.filter(d => d.cuotasPagas < d.cuotas && d.dueDay).map(d => ({ d, n: daysUntil(d.dueDay) })).filter(x => x.n <= 10).sort((a, b) => a.n - b.n);
+  // Balance general = lo que realmente tenés: ingresos − gastos + el saldo inicial que cargaste en cada cuenta
+  const initSum = sum(Object.values(S.accInit || {}), v => Number(v) || 0), balance = inc - exp + initSum;
+  // resumen del mes: cuánto cambió el balance este mes y, si sobró plata, cuánto queda por día hasta fin de mes
+  const mInc = sum(tx.filter(t => t.type === 'ingreso'), t => t.amount), mExp = sum(tx.filter(t => t.type === 'gasto'), t => t.amount), mNet = mInc - mExp;
+  const nowD = new Date(), daysLeft = new Date(nowD.getFullYear(), nowD.getMonth() + 1, 0).getDate() - nowD.getDate() + 1;
+  const insight = S.tx.length ? `<div class="insight"><b class="${mNet < 0 ? 'neg' : 'pos'}">${mNet < 0 ? '▼' : '▲'} ${money(Math.abs(mNet))}</b> este mes${mNet > 0 && daysLeft > 0 ? ` · te quedan <b>${money(Math.round(mNet / daysLeft))}</b> por día` : ''}</div>` : '';
+  // desglose por cuenta (se abre con "Ver detalle")
+  const accs = allMethods().filter(accShown).map(n => ({ n, b: accBalance(n) })).sort((x, y) => Math.abs(y.b) - Math.abs(x.b));
+  const loose = sum(S.tx.filter(t => !t.method), t => (t.type === 'ingreso' ? 1 : -1) * t.amount), posTot = sum(accs, a => Math.max(0, a.b));
+  const drows = accs.map(a => `<button class="drow" data-act="accgo" data-n="${esc(a.n)}"><i style="background:var(--c${METHOD_SLOT[a.n] || hashSlot(a.n)})"></i><span>${esc(a.n)}${a.b > 0 && posTot ? `<small>${Math.round(a.b / posTot * 100)}%</small>` : ''}</span><b class="${a.b < 0 ? 'neg' : ''}">${money(a.b)}</b></button>`).join('')
+    + (Math.abs(loose) > 0.005 ? `<div class="drow"><i style="background:transparent;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.5)"></i><span>Sin cuenta<small>sin asignar</small></span><b class="${loose < 0 ? 'neg' : ''}">${money(loose)}</b></div>` : '');
+  const eye = HIDE ? '<svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.5 6.6A17 17 0 0 0 2 12s3.6 7 10 7a10 10 0 0 0 4.2-.9M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
   return `
   <div class="card hero">
-    <div class="label">Balance general</div>
-    <div class="big ${inc - exp < 0 ? 'neg' : ''} ${money(inc - exp).length > 13 ? 'sm' : ''}">${money(inc - exp)}</div>
+    <div class="toprow"><div class="label">Balance general</div><button class="eye" data-act="hide" aria-label="${HIDE ? 'Mostrar montos' : 'Ocultar montos'}" aria-pressed="${HIDE}">${eye}</button></div>
+    <div class="big ${balance < 0 ? 'neg' : ''} ${money(balance).length > 13 ? 'sm' : ''}">${money(balance)}</div>
+    ${insight}
+    ${drows ? `<button class="det" data-act="hdet" aria-expanded="${homeDet}"><i></i><span>${homeDet ? 'Detalle ▴' : 'Ver detalle ▾'}</span><i></i></button><div class="drows"${homeDet ? '' : ' hidden'}>${drows}</div>` : ''}
     <div class="pair"><div><span class="label">Ingresos</span><b class="pos">${money(inc)}</b></div><div><span class="label">Gastos</span><b class="neg">${money(exp)}</b></div></div>
   </div>
   ${owedMe || iOwe ? `<button class="card" data-act="tab" data-v="debts" style="text-align:left;width:100%"><div class="row"><div><div class="label">Me deben</div><div class="stat ${owedMe ? 'pos' : 'muted'}">${money(owedMe)}</div></div><div style="text-align:right"><div class="label">Debo</div><div class="stat ${iOwe ? 'neg' : 'muted'}">${money(iOwe)}</div></div></div></button>` : ''}
@@ -255,7 +274,7 @@ function breakdownCard(tx, when) {
 function swapBreakdown() {
   const box = $('#bk'); if (!box) return;
   const cur = today().slice(0, 7), tmp = document.createElement('div');
-  tmp.innerHTML = breakdownCard(S.tx.filter(t => t.date.startsWith(cur)), monthLabel(cur));
+  tmp.innerHTML = withMask(() => breakdownCard(S.tx.filter(t => t.date.startsWith(cur)), monthLabel(cur)));
   box.querySelector('h3').innerHTML = tmp.querySelector('h3').innerHTML;
   box.querySelectorAll('.tog button').forEach(b => { const on = b.dataset.v === homeSeg; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
   for (const sel of ['.rib', '.lgd']) { const a = box.querySelector(sel), b = tmp.querySelector(sel); if (a && b) { b.classList.add('swap'); a.replaceWith(b); } }
@@ -302,7 +321,7 @@ function vMov() {
   const base = (sv.length ? sum(sv) / sv.length : 0) || (nets.length ? sum(nets) / nets.length : 1);
   const lvl = v => { const a = Math.abs(v); return a < base * .5 ? 1 : a < base ? 2 : a < base * 2.2 ? 3 : 4; };
   const sel = selDay && selDay.startsWith(month) ? selDay : now.startsWith(month) ? now : (days.sort().pop() || null);
-  const k = v => (v >= 1000 ? Math.round(v / 1000) + 'k' : String(Math.round(v)));
+  const k = v => (masking ? '••' : v >= 1000 ? Math.round(v / 1000) + 'k' : String(Math.round(v)));
   let cells = ['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(w => `<div class="w" aria-hidden="true">${w}</div>`).join('') + '<div class="d v"></div>'.repeat(lead);
   for (let i = 1; i <= dim; i++) {
     const date = `${month}-${String(i).padStart(2, '0')}`, nt = net(date), has = nt !== 0, cls = ['d', has ? (nt > 0 ? 'g' : 'r') + lvl(nt) : 'l0', date > now ? 'f' : '', date === sel ? 'sel' : ''].join(' ');
@@ -387,7 +406,7 @@ function vGroups() {
 function render() {
   $('#title').textContent = openGroup && view === 'groups' ? 'Grupo' : TITLES[view];
   $('#sub').textContent = new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
-  $('#main').innerHTML = { home: vHome, mov: vMov, split: vSplit, groups: vGroups, debts: vDeudas }[view]();
+  $('#main').innerHTML = withMask({ home: vHome, mov: vMov, split: vSplit, groups: vGroups, debts: vDeudas }[view]);
   const tabOn = view === 'mov' ? 'home' : view;   // "Movimientos" cuelga de Inicio
   document.querySelectorAll('#tabs button[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === tabOn));
   syncHistory();
@@ -610,6 +629,10 @@ const act = {
   hseg: el => { homeSeg = el.dataset.v; swapBreakdown(); },
   day: el => keepView(() => { selDay = el.dataset.d; }),
   movf: el => keepView(() => { movFilter = el.dataset.v; }),
+  hide: () => keepView(() => { HIDE = !HIDE; prefSet('plata.hide', HIDE); }),
+  hdet: el => { const box = el.nextElementSibling; box.hidden = !box.hidden; homeDet = !box.hidden; prefSet('plata.det', homeDet); el.setAttribute('aria-expanded', homeDet); el.querySelector('span').textContent = homeDet ? 'Detalle ▴' : 'Ver detalle ▾'; },
+  // tocar una cuenta del detalle abre Por mes mirando solo esa cuenta
+  accgo: el => { movAcc = el.dataset.n; month = today().slice(0, 7); selDay = null; movFilter = 'all'; view = 'mov'; openGroup = null; render(); scrollTo(0, 0); },
   movacc: el => { keepView(() => { movAcc = el.dataset.n; }); $('.chips2 .on')?.scrollIntoView({ inline: 'center', block: 'nearest' }); },
   mvundo: el => { if (confirm('¿Deshacer este traspaso? Cada cuenta vuelve a su saldo anterior.')) { S.moves = (S.moves || []).filter(m => m.id !== el.dataset.id); commit(); } },
   close: closeSheet,

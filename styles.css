@@ -268,6 +268,17 @@ body:not(.has-ai) .ai-only{display:none!important}
 .chips2 button i{width:10px;height:10px;border-radius:50%;display:block;flex:none}
 .chips2 .on{background:var(--accent);color:var(--accent-ink);font-weight:600}
 .dot.tr{background:var(--chip);color:var(--muted);font-size:20px}
+/* balance: ojo, línea de resumen y detalle por cuenta */
+.hero .toprow{display:flex;justify-content:space-between;align-items:flex-start}
+.eye{width:44px;height:44px;margin:-8px -10px 0 0;display:grid;place-items:center;border-radius:50%;color:rgba(255,255,255,.85);flex:none}
+.eye svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.hero .insight{font-size:13.5px;margin:-6px 0 8px;color:rgba(255,255,255,.85)}.hero .insight b{font-weight:700}
+.hero .det{display:flex;align-items:center;gap:10px;width:100%;color:rgba(255,255,255,.8);font:600 13px var(--sans);letter-spacing:.08em;text-transform:uppercase;margin:0 0 2px;min-height:44px}
+.hero .det i{flex:1;height:1px;background:rgba(255,255,255,.22);display:block}
+.hero .drows{margin-bottom:8px}
+.hero .drow{display:grid;grid-template-columns:16px 1fr auto;gap:10px;align-items:center;min-height:46px;width:100%;text-align:left;color:#fff;border-top:1px solid rgba(255,255,255,.1)}
+.hero .drow i{width:10px;height:10px;border-radius:50%;display:block}.hero .drow b{font:600 16px var(--display)}.hero .drow small{opacity:.7;font-size:12.5px;margin-left:6px}
+.hero .drow b.neg{color:var(--negx)}
 main.still>*{animation:none!important}
 .back{min-height:46px;display:inline-flex;align-items:center}
 :focus-visible{outline:3px solid var(--c1);outline-offset:2px}
