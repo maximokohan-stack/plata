@@ -52,7 +52,8 @@
   <div class="chat-head"><button class="icon-btn" data-act="chatclose" aria-label="Volver">‹</button><b>Asistente</b>
     <span class="top-actions"><button class="icon-btn" data-act="chatclear" aria-label="Nueva conversación">↺</button><button class="icon-btn" data-act="cfg" aria-label="Configurar">⚙</button></span></div>
   <div id="chat-log" class="chat-log"></div>
-  <form id="chat-form" class="chat-form"><input id="chat-input" type="text" placeholder="Escribí o dictá…" autocomplete="off" enterkeyhint="send"><button id="chat-send" class="btn">Enviar</button></form>
+  <div id="chat-att" class="chat-att" hidden></div>
+  <form id="chat-form" class="chat-form"><label class="icon-btn att-btn" title="Adjuntar foto o PDF" aria-label="Adjuntar foto o PDF"><input type="file" id="chat-file" accept="image/*,application/pdf" hidden><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></label><input id="chat-input" type="text" placeholder="Escribí o dictá…" autocomplete="off" enterkeyhint="send"><button id="chat-send" class="btn">Enviar</button></form>
 </section>
 <div id="update" class="update" hidden role="status"><span>Hay una versión nueva de Plata.</span><button class="btn sm" data-act="reload">Actualizar</button></div>
 <div id="toast" class="toast" hidden></div>

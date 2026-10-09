@@ -15,6 +15,8 @@ Reglas:
 - En facturas de servicios, un ítem por cada concepto facturado (ej. "Abono mensual internet", "Cargo por equipo").
 - Si los importes de línea no incluyen IVA o impuestos y el total sí, agregá un ítem "IVA e impuestos" con la diferencia, para que la suma de ítems dé el total.
 - Nombres legibles en español; expandí abreviaturas obvias (LECHE ENT 1L -> "Leche entera 1 L").
+- Si hay columnas (cantidad, precio unitario, total), usá siempre el total de la línea (la última columna): "2 Agua 295,00 590,00" es "Agua x2" con amount 590. Una línea con total 0 (por ejemplo cubiertos o comensales sin cargo) no es un ítem.
+- La foto puede estar borrosa, torcida o ser de baja calidad: leé con cuidado cada línea y no inventes productos ni importes. Si un importe no se lee con seguridad, dejalo igual con tu mejor lectura.
 - Si el documento no tiene importes, devolvé {"store":null,"items":[],"total":null}.`;
 
 // ---------- utilidades compartidas con la importación de movimientos ----------
@@ -90,9 +92,9 @@ forms.items = (f, id) => {
 const prepImage = file => new Promise((res, rej) => {
   const img = new Image(), url = URL.createObjectURL(file);
   img.onload = () => {
-    const s = Math.min(1, 2000 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+    const big = Math.max(img.width, img.height), s = big < 1000 ? 1400 / big : Math.min(1, 2000 / big), c = document.createElement('canvas');
     c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+    const cx = c.getContext('2d'); cx.imageSmoothingQuality = 'high'; cx.drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
     res(c.toDataURL('image/jpeg', .85).split(',')[1]);
   };
   img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('No pude abrir la imagen')); };
@@ -110,10 +112,10 @@ document.addEventListener('change', async e => {
   const file = e.target.files[0]; e.target.value = ''; if (!file) return;
   const st = $('#scan-status');
   if (!getCfg().apiKey) { st.textContent = 'Falta tu API key. Cerrá esto, tocá ✨ arriba a la derecha, luego ⚙, pegala y guardá.'; return; }
-  st.textContent = 'Leyendo el ticket…';
+  st.className = 'muted'; st.style.fontSize = '14px'; st.textContent = 'Leyendo el ticket… puede tardar unos segundos.';
   try {
     const r = await readReceipt(file);
-    if (!r.items.length) { st.textContent = 'No encontré importes en ese archivo. Probá con una foto más nítida, de frente y bien iluminada, o con el PDF.'; return; }
+    if (!r.items.length) { st.className = 'warn'; st.textContent = 'No encontré importes en ese archivo. Probá con una foto más nítida, de frente y bien iluminada, o con el PDF.'; return; }
     const box = $('#i-rows');
     if (box && itemsGroup) {
       const rows = [...box.querySelectorAll('.irow')];
@@ -121,9 +123,9 @@ document.addEventListener('change', async e => {
       box.insertAdjacentHTML('beforeend', r.items.map(i => itemRow(itemsGroup, { name: i.name, amount: i.amount })).join(''));
       const d = $('form[data-form=items] [name=desc]'); if (r.store && d && !d.value.trim()) d.value = r.store;
       scannedTotal = r.total; itemsDraw();
-      st.textContent = `${r.items.length} productos leídos. Revisalos y marcá quién consumió cada uno.`;
+      st.className = 'muted'; st.textContent = `${r.items.length} productos leídos. Revisalos y marcá quién consumió cada uno.`;
     }
-  } catch (err) { st.textContent = err.message || 'No se pudo leer el ticket.'; }
+  } catch (err) { st.className = 'warn'; st.textContent = err.message || 'No se pudo leer el ticket.'; }
 });
 
 act.newitems = () => formItems(S.groups.find(g => g.id === openGroup));

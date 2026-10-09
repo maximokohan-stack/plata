@@ -123,7 +123,7 @@ async function callGemini(cfg, req) {
     if (parts.length) contents.push({ role, parts });
   }
   const data = await postJson(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`, { 'x-goog-api-key': cfg.apiKey },
-    { contents, systemInstruction: { parts: [{ text: req.system }] }, generationConfig: { maxOutputTokens: req.maxTokens || 4000 },
+    { contents, systemInstruction: { parts: [{ text: req.system }] }, generationConfig: { maxOutputTokens: (req.maxTokens || 4000) * 2 + 4000 },
       ...(req.tools?.length ? { tools: [{ functionDeclarations: req.tools.map(t => ({ name: t.name, description: t.description, parameters: t.input_schema })) }] } : {}) }, cfg);
   if (data.promptFeedback?.blockReason) return { content: [], stop: 'refusal' };
   const cand = data.candidates?.[0], out = [];

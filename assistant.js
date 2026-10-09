@@ -77,20 +77,24 @@ const RECEIPT = {
 };
 
 // ---------- chat ----------
-const chat = { msgs: [], ui: [], busy: false };
+const chat = { msgs: [], ui: [], busy: false, att: null };   // att: archivo adjunto que espera ser enviado
 const SYSTEM = () => `Sos el asistente de "Plata", una app personal de finanzas. Hablás en español rioplatense, claro y breve (esto se lee en un celular). Hoy es ${today()}; la moneda es el peso argentino (ARS).
 Tenés herramientas para leer los datos del usuario y para registrar cosas. Reglas:
 - Para cualquier pregunta sobre sus números, consultá primero con get_snapshot o list_transactions; nunca inventes cifras.
 - Cuando el usuario cuente un gasto, ingreso, préstamo o pago, registralo con la herramienta correspondiente. Si falta un dato imprescindible (monto, o quién es la persona), preguntalo antes de registrar. No borrás nada.
 - Después de registrar, confirmá en una línea lo que anotaste.
+- El usuario puede adjuntar una foto o PDF (ticket, factura, resumen de tarjeta). Leelo con atención: decí en pocas líneas qué viste (comercio, productos principales y total) y, si es una compra o un gasto, ofrecé registrarlo con categoría y método sugeridos; registralo solo cuando el usuario lo confirme o lo haya pedido. Si la foto está borrosa o un importe no se lee seguro, decilo y pedí confirmar. Si el ticket se reparte entre varias personas, sugerí usar Grupos > Compra por producto.
 - Podés dar ideas generales de ahorro y organización, pero no sos asesor financiero ni recomendás inversiones.`;
 
+const isTurnStart = m => m.role === 'user' && !(Array.isArray(m.content) && m.content.some(b => b.type === 'tool_result'));
+// la foto se manda una vez: en los turnos siguientes queda solo una nota, así no se vuelve a pagar ni a enviar
+const dropFiles = () => chat.msgs.forEach(m => { if (Array.isArray(m.content) && m.role === 'user') m.content = m.content.map(b => b.type === 'image' || b.type === 'document' ? { type: 'text', text: '[archivo adjunto ya leído]' } : b); });
 const callApi = () => llm({ system: SYSTEM(), tools: TOOLS, messages: chat.msgs, maxTokens: 4000, effort: 'low' });
 
-async function send(text) {
+async function send(text, att) {
   const cfg = getCfg();
   if (!cfg.apiKey) { chat.ui.push({ r: 'err', t: 'Para usar el asistente cargá tu API key (tocá ⚙ arriba).' }); drawChat(); openCfg(); return; }
-  chat.busy = true; chat.ui.push({ r: 'user', t: text }); chat.msgs.push({ role: 'user', content: text }); drawChat();
+  chat.busy = true; chat.ui.push({ r: 'user', t: text, att: att ? { name: att.name, thumb: att.thumb } : null }); chat.msgs.push({ role: 'user', content: att ? [att.block, { type: 'text', text }] : text }); drawChat();
   try {
     for (let i = 0; i < 8; i++) {
       const data = await callApi();
@@ -114,18 +118,19 @@ async function send(text) {
   } catch (e) {
     chat.ui.push({ r: 'err', t: e.message || 'No se pudo conectar. ¿Tenés internet?' });
     // sacamos el turno fallido para que el historial siga siendo válido
-    while (chat.msgs.length && !(chat.msgs.at(-1).role === 'user' && typeof chat.msgs.at(-1).content === 'string')) chat.msgs.pop();
+    while (chat.msgs.length && !isTurnStart(chat.msgs.at(-1))) chat.msgs.pop();
     chat.msgs.pop();
   }
-  chat.busy = false; drawChat();
+  dropFiles(); chat.busy = false; drawChat();
 }
 
 const fmtMsg = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
 function drawChat() {
   const box = $('#chat-log'); if (!box) return;
   const hints = ['¿Cuánto gasté este mes?', '¿Quién me debe plata?', 'Gasté 8500 en el súper', '¿En qué gasto de más?'];
-  box.innerHTML = (chat.ui.length ? '' : `<div class="empty"><b>Preguntame lo que quieras</b>Puedo leer tus gastos, deudas y préstamos, y anotar cosas por vos.</div><div class="chips">${hints.map(h => `<button data-act="hint" data-t="${esc(h)}">${esc(h)}</button>`).join('')}</div>`)
-    + chat.ui.map(m => `<div class="msg ${m.r}">${fmtMsg(m.t)}</div>`).join('') + (chat.busy ? '<div class="msg bot typing"><i></i><i></i><i></i></div>' : '');
+  drawAtt();
+  box.innerHTML = (chat.ui.length ? '' : `<div class="empty"><b>Preguntame lo que quieras</b>Puedo leer tus gastos, deudas y préstamos, anotar cosas por vos y leer fotos de tickets.</div><div class="chips">${hints.map(h => `<button data-act="hint" data-t="${esc(h)}">${esc(h)}</button>`).join('')}<button data-act="chatattach">📷 Leer un ticket</button></div>`)
+    + chat.ui.map(m => `<div class="msg ${m.r}">${m.att ? (m.att.thumb ? `<img class="att" src="${m.att.thumb}" alt="Foto adjunta">` : `<div class="attf">📄 ${esc(m.att.name)}</div>`) : ''}${fmtMsg(m.t)}</div>`).join('') + (chat.busy ? '<div class="msg bot typing"><i></i><i></i><i></i></div>' : '');
   box.scrollTop = box.scrollHeight;
   $('#chat-send').disabled = chat.busy;
 }
@@ -190,7 +195,30 @@ act.hint = el => { if (!chat.busy) send(el.dataset.t); };
 document.addEventListener('submit', e => {
   if (e.target.id !== 'chat-form') return;
   e.preventDefault();
-  const inp = $('#chat-input'), t = inp.value.trim();
-  if (!t || chat.busy) return;
-  inp.value = ''; send(t);
+  const inp = $('#chat-input'), att = chat.att, t = inp.value.trim() || (att ? 'Leé este archivo y decime qué ves.' : '');
+  if ((!inp.value.trim() && !att) || chat.busy) return;
+  inp.value = ''; chat.att = null; drawAtt(); send(t, att);
 });
+
+// ---------- adjuntar foto o PDF ----------
+const thumbOf = file => new Promise(res => {
+  if (!file.type.startsWith('image/')) return res(null);
+  const img = new Image(), url = URL.createObjectURL(file);
+  img.onload = () => { const s = 160 / Math.max(img.width, img.height, 160), c = document.createElement('canvas'); c.width = Math.round(img.width * s); c.height = Math.round(img.height * s); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', .7)); };
+  img.onerror = () => { URL.revokeObjectURL(url); res(null); };
+  img.src = url;
+});
+function drawAtt() {
+  const box = $('#chat-att'); if (!box) return;
+  box.hidden = !chat.att;
+  box.innerHTML = chat.att ? `${chat.att.thumb ? `<img src="${chat.att.thumb}" alt="">` : '<span>📄</span>'}<span class="n">${esc(chat.att.name)}</span><button type="button" class="icon-btn" data-act="attrm" aria-label="Quitar archivo">✕</button>` : '';
+}
+document.addEventListener('change', async e => {
+  if (e.target.id !== 'chat-file') return;
+  const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+  if (!getCfg().apiKey) { openCfg(); return; }
+  try { chat.att = { name: file.name || 'foto', thumb: await thumbOf(file), block: await fileToBlock(file) }; drawAtt(); $('#chat-input').focus(); }
+  catch (err) { chat.ui.push({ r: 'err', t: err.message || 'No pude abrir ese archivo.' }); drawChat(); }
+});
+act.chatattach = () => $('#chat-file').click();
+act.attrm = () => { chat.att = null; drawAtt(); };
