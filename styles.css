@@ -262,6 +262,12 @@ body:not(.has-ai) .ai-only{display:none!important}
 @keyframes swapin{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 /* mover plata: cómo queda el saldo de cada cuenta */
 .effect{background:var(--surface);border-radius:18px;padding:10px 14px;font-size:14px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+/* fichas de cuenta sobre el calendario */
+.chips2{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 -16px 12px;padding:2px 16px}.chips2::-webkit-scrollbar{display:none}
+.chips2 button{flex:none;min-height:46px;padding:0 16px;border-radius:99px;background:var(--surface);color:var(--muted);font-weight:500;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.chips2 button i{width:10px;height:10px;border-radius:50%;display:block;flex:none}
+.chips2 .on{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.dot.tr{background:var(--chip);color:var(--muted);font-size:20px}
 main.still>*{animation:none!important}
 .back{min-height:46px;display:inline-flex;align-items:center}
 :focus-visible{outline:3px solid var(--c1);outline-offset:2px}
