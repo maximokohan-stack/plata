@@ -1,5 +1,5 @@
 'use strict';
-/* Capa de proveedores de IA. Cada persona usa SU key y SU cuenta: Anthropic, Google Gemini u OpenRouter.
+/* Capa de proveedores de IA. Cada persona usa SU key y SU cuenta: Anthropic, OpenAI (ChatGPT), Google Gemini u OpenRouter.
    Internamente todo se habla en formato "bloques" (text / image / document / tool_use / tool_result)
    y cada adaptador lo traduce al formato de su API. La key vive solo en este dispositivo. */
 
@@ -7,6 +7,9 @@ const PROVIDERS = {
   anthropic: { name: 'Anthropic (Claude)', keyUrl: 'console.anthropic.com', keyHint: 'sk-ant-…', def: 'claude-opus-5-5',
     note: 'Se paga por uso con crédito prepago.',
     models: { 'claude-opus-5-5': 'Opus 5.5 · el más capaz', 'claude-sonnet-5-5': 'Sonnet 5.5 · equilibrado', 'claude-haiku-5-5': 'Haiku 5.5 · el más barato' } },
+  openai: { name: 'OpenAI (ChatGPT)', keyUrl: 'platform.openai.com/api-keys', keyHint: 'sk-…', def: 'gpt-5-mini',
+    note: 'La API se paga aparte de la suscripción a ChatGPT: hace falta cargar crédito en platform.openai.com.',
+    models: { 'gpt-5-mini': 'GPT-5 mini · equilibrado y barato', 'gpt-5': 'GPT-5 · el más capaz' } },
   gemini: { name: 'Google Gemini', keyUrl: 'aistudio.google.com/apikey', keyHint: 'AIza…', def: 'gemini-3.7-flash',
     note: 'Suele tener un plan gratuito con límites; mirá los vigentes en su sitio.', models: {} },
   openrouter: { name: 'OpenRouter (muchos modelos)', keyUrl: 'openrouter.ai/keys', keyHint: 'sk-or-…', def: 'google/gemma-4-31b-it:free',
@@ -61,7 +64,7 @@ const postJson = async (url, headers, body, cfg) => {
 async function llm(req) {
   const cfg = getCfg();
   if (!cfg.apiKey) throw new Error('Falta tu API key (⚙).');
-  return ({ anthropic: callAnthropic, gemini: callGemini, openrouter: callOpenAI }[cfg.provider])(cfg, req);
+  return ({ anthropic: callAnthropic, openai: callOpenAI, gemini: callGemini, openrouter: callOpenRouter }[cfg.provider])(cfg, req);
 }
 
 async function callAnthropic(cfg, req) {
@@ -70,8 +73,10 @@ async function callAnthropic(cfg, req) {
   return { content: data.content || [], stop: data.stop_reason === 'tool_use' ? 'tool_use' : data.stop_reason === 'max_tokens' ? 'max_tokens' : data.stop_reason === 'refusal' ? 'refusal' : 'end_turn' };
 }
 
-// OpenAI-compatible (OpenRouter)
-async function callOpenAI(cfg, req) {
+// Formato "chat completions": lo hablan OpenAI y OpenRouter (cambian la dirección y el nombre del tope de tokens)
+const callOpenAI = (cfg, req) => callChat(cfg, req, 'https://api.openai.com/v1/chat/completions', { max_completion_tokens: (req.maxTokens || 4000) * 2 + 4000 });   // los modelos que razonan gastan parte del tope pensando
+const callOpenRouter = (cfg, req) => callChat(cfg, req, 'https://openrouter.ai/api/v1/chat/completions', { max_tokens: req.maxTokens || 4000 });
+async function callChat(cfg, req, url, limit) {
   const part = b => b.type === 'text' ? { type: 'text', text: b.text }
     : b.type === 'image' ? { type: 'image_url', image_url: { url: `data:${b.source.media_type};base64,${b.source.data}` } }
     : { type: 'file', file: { filename: 'documento.pdf', file_data: `data:application/pdf;base64,${b.source.data}` } };
@@ -86,8 +91,8 @@ async function callOpenAI(cfg, req) {
       const rest = m.content.filter(b => b.type !== 'tool_result'); if (rest.length) msgs.push({ role: 'user', content: rest.map(part) });
     }
   }
-  const data = await postJson('https://openrouter.ai/api/v1/chat/completions', { authorization: 'Bearer ' + cfg.apiKey },
-    { model: cfg.model, max_tokens: req.maxTokens || 4000, messages: msgs, ...(req.tools?.length ? { tools: req.tools.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })) } : {}) }, cfg);
+  const data = await postJson(url, { authorization: 'Bearer ' + cfg.apiKey },
+    { model: cfg.model, ...limit, messages: msgs, ...(req.tools?.length ? { tools: req.tools.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })) } : {}) }, cfg);
   if (data.error) throw new Error(data.error.message || 'Error del proveedor');
   const ch = data.choices?.[0], msg = ch?.message || {}, out = [];
   const text = Array.isArray(msg.content) ? msg.content.map(p => p.text || '').join('') : (msg.content || '');
@@ -141,6 +146,12 @@ async function listModels(provider, apiKey) {
     return d.data.filter(m => (m.architecture?.input_modalities || []).includes('image') && (m.supported_parameters || []).includes('tools'))
       .map(m => ({ id: m.id, free: Number(m.pricing?.prompt) === 0 && Number(m.pricing?.completion) === 0, name: m.name || m.id }))
       .sort((a, b) => b.free - a.free || a.id.localeCompare(b.id));
+  }
+  if (provider === 'openai') {
+    if (!apiKey) throw new Error('Pegá tu API key primero para ver los modelos.');
+    const d = await get('https://api.openai.com/v1/models', { authorization: 'Bearer ' + apiKey });
+    return (d.data || []).filter(m => /^(gpt-|o\d|chatgpt-)/.test(m.id) && !/(audio|realtime|transcribe|tts|image|embedding|moderation|search|instruct|whisper|dall|codex|computer|deep-research)/.test(m.id))
+      .map(m => ({ id: m.id, free: false, name: m.id })).sort((a, b) => b.id.localeCompare(a.id));
   }
   if (provider === 'gemini') {
     if (!apiKey) throw new Error('Pegá tu API key primero para ver los modelos.');

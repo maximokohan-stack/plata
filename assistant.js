@@ -1,5 +1,5 @@
 'use strict';
-/* Asistente de Plata: chat con un modelo de IA (Anthropic, Gemini u OpenRouter, según lo que elija cada persona)
+/* Asistente de Plata: chat con un modelo de IA (Anthropic, OpenAI, Gemini u OpenRouter, según lo que elija cada persona)
    que lee y registra datos mediante herramientas. La configuración y la API key viven en llm.js. */
 
 const TOOLS = [
@@ -167,7 +167,7 @@ act.listmodels = async () => {
     if (!$('#cfg-models')) return;
     $('#cfg-models').innerHTML = ms.slice(0, 400).map(m => `<option value="${esc(m.id)}">${esc(m.free ? '🆓 ' : '')}${esc(m.name)}</option>`).join('');
     const free = ms.filter(m => m.free).length;
-    st.textContent = `${ms.length} modelos${prov === 'openrouter' ? ' con imágenes y herramientas' : ''}${free ? ` · ${free} gratuitos (🆓)` : ''}. Tocá el campo Modelo para elegir; si lo vaciás aparecen todos.`;
+    st.textContent = `${ms.length} modelos${prov === 'openrouter' ? ' con imágenes y herramientas' : prov === 'openai' ? ' de chat (elegí uno con imágenes, p. ej. GPT-5 o mini)' : ''}${free ? ` · ${free} gratuitos (🆓)` : ''}. Tocá el campo Modelo para elegir; si lo vaciás aparecen todos.`;
     const inp = $('#cfg-model'); inp.value = ''; inp.focus();
   } catch (e) { st.textContent = e.message; }
 };

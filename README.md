@@ -13,7 +13,7 @@ Control de gastos, deudas, plata prestada y cuentas compartidas. Web app instala
 
 ## IA opcional: cada persona usa su propia key
 
-Nada de IA funciona hasta que alguien carga **su propia API key** en ⚙ → *Funciones con IA*. Proveedores soportados: **Anthropic**, **Google Gemini** y **OpenRouter** (algunos modelos gratuitos). La key se guarda solo en el dispositivo (`localStorage`) y se envía directo al proveedor; no hay backend. Quien no carga una key no ve ningún botón de IA.
+Nada de IA funciona hasta que alguien carga **su propia API key** en ⚙ → *Funciones con IA*. Proveedores soportados: **Anthropic**, **OpenAI (ChatGPT)**, **Google Gemini** y **OpenRouter** (algunos modelos gratuitos). La key se guarda solo en el dispositivo (`localStorage`) y se envía directo al proveedor; no hay backend. Quien no carga una key no ve ningún botón de IA.
 
 > No subas keys al repositorio. La app no las necesita en el código.
 
@@ -39,7 +39,7 @@ Archivos principales:
 | `calc.js` | Calculadoras de dividir |
 | `items.js` | Compra por producto + lectura de tickets |
 | `import.js` | Importar movimientos desde capturas / PDF |
-| `llm.js` | Capa de proveedores de IA (Anthropic, Gemini, OpenRouter) |
+| `llm.js` | Capa de proveedores de IA (Anthropic, OpenAI, Gemini, OpenRouter) |
 | `assistant.js` | Chat con herramientas |
 | `sw.js`, `manifest.json` | Modo offline e instalación |
 | `fonts/` | Outfit (títulos, cifras e interfaz), subconjunto latino, licencia SIL OFL 1.1. Alojadas en la app: sin pedidos a terceros y disponibles sin internet |
