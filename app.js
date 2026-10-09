@@ -413,7 +413,9 @@ function render() {
 }
 
 // ---------- hoja modal ----------
-function sheet(title, html) { $('#sheet-title').textContent = title; $('#sheet-body').innerHTML = html; $('#overlay').hidden = false; $('#sheet-body').closest('.sheet').scrollTop = 0; syncHistory(); }
+// los campos de texto no deben ofrecer lo escrito antes (el navegador lo hace si no se le dice que no)
+const noAutofill = root => root.querySelectorAll('input:not([autocomplete]):not([list]):not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file])').forEach(i => { i.setAttribute('autocomplete', 'off'); if (i.type === 'text') i.setAttribute('autocorrect', 'off'); });
+function sheet(title, html) { $('#sheet-title').textContent = title; $('#sheet-body').innerHTML = html; noAutofill($('#sheet-body')); $('#overlay').hidden = false; $('#sheet-body').closest('.sheet').scrollTop = 0; syncHistory(); }
 function closeSheet() { $('#overlay').hidden = true; $('#sheet-body').innerHTML = ''; syncHistory(); }
 
 // ---------- botón / gesto "atrás" de Android ----------
@@ -849,6 +851,8 @@ document.addEventListener('change', e => {
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
 // campo de categoría: desplegable + escritura con filtro por coincidencia
+// filas que se agregan después (calculadora, productos, importación): se aplica al tocar
+document.addEventListener('pointerdown', e => { const i = e.target; if (i.matches?.('input[type=text],input[type=tel],input[type=search]') && !i.hasAttribute('autocomplete') && !i.hasAttribute('list')) i.setAttribute('autocomplete', 'off'); }, true);
 act.combotoggle = el => { const i = el.parentElement.querySelector('input'), l = el.parentElement.querySelector('.combo-list'); if (l.hidden) { comboRender(i, true); i.focus({ preventScroll: true }); } else l.hidden = true; };
 act.combopick = el => { const c = el.closest('.combo'); c.querySelector('input').value = el.dataset.v; c.querySelector('.combo-list').hidden = true; };
 document.addEventListener('input', e => { if (e.target.matches('.combo input')) comboRender(e.target, false); });
@@ -858,7 +862,8 @@ document.addEventListener('input', e => {   // cuenta nueva escrita a mano + efe
   const f = t.closest?.('form[data-form=tx],form[data-form=move]'); if (f) accEffects(f);
 });
 document.addEventListener('input', e => { if (e.target.id === 'me-alias') { (S.me ||= {}).alias = e.target.value.trim(); save(); } });
-document.addEventListener('focusin', e => { if (e.target.matches('.combo input')) { e.target.select(); comboRender(e.target, false); } });
+document.addEventListener('focusin', e => { const i = e.target; if (i.matches('.combo input')) { i.dataset.prev = i.value; i.value = ''; comboRender(i, true); } });
+document.addEventListener('focusout', e => { const i = e.target; if (i.matches?.('.combo input') && !i.value.trim() && i.dataset.prev) i.value = i.dataset.prev; });
 document.addEventListener('click', e => { if (!e.target.closest('.combo')) document.querySelectorAll('.combo-list').forEach(l => l.hidden = true); });
 
 // ---------- arranque ----------
