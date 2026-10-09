@@ -71,7 +71,8 @@ button.card:hover{background:var(--chip)}
 .hero .pair b{font:600 19px var(--display);letter-spacing:-.02em;white-space:nowrap}
 .label{font-size:14px;color:var(--muted);font-weight:500}
 .big{font:600 46px/1.05 var(--display);letter-spacing:-.04em;margin:2px 0 12px}
-.big.sm{font-size:36px}   /* balances larguísimos: la cifra se achica en vez de pasarse del ancho */
+.big.sm{font-size:36px}.big.xs{font-size:28px}
+.stat.sm{font-size:20px}   /* balances larguísimos: la cifra se achica en vez de pasarse del ancho */
 .pos{color:var(--pos)} .neg{color:var(--neg)} .muted{color:var(--muted)} .warn{color:var(--warn)}
 .row{display:flex;align-items:center;gap:12px;justify-content:space-between}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
@@ -297,6 +298,14 @@ body:not(.has-ai) .ai-only{display:none!important}
 .rc.add .newin:focus{box-shadow:none}
 .item .ch{color:var(--muted);font-size:22px;flex:none}
 .sheet h3:first-child{margin-top:4px}
+/* hoja de resumen de una cuenta */
+.mini3{display:grid;gap:8px;margin:2px 0 14px}
+.mini3>div{background:var(--surface);border-radius:20px;padding:10px 12px;min-width:0}
+.mini3 small{display:block;color:var(--muted);font-size:12.5px}.mini3 b{display:block;font:600 16px var(--display);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini3.stack{grid-template-columns:1fr}.mini3.stack>div{display:flex;justify-content:space-between;align-items:baseline;gap:12px}.mini3.stack b{margin:0;font-size:17px}
+.acts{display:flex;gap:8px;margin:12px 0 0}.acts .btn{flex:1;min-width:0;padding:0 10px;font-size:15px}
+.lgd.long b{font-size:15px;flex-wrap:wrap;row-gap:0}
+.hero .drow>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hero .drow b{white-space:nowrap}
 main.still>*{animation:none!important}
 .back{min-height:46px;display:inline-flex;align-items:center}
 :focus-visible{outline:3px solid var(--c1);outline-offset:2px}

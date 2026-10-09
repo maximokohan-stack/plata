@@ -45,6 +45,7 @@ const NF = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 2, minimumFra
 // ojo de "ocultar montos": mientras se dibuja una pantalla principal (Inicio, Por mes, Deudas, Grupos) las cifras salen como $ ••••
 const prefGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v === '1'; } catch { return d; } };
 const prefSet = (k, v) => { try { localStorage.setItem(k, v ? '1' : '0'); } catch { } };
+const bigCls = t => (t.length > 17 ? 'xs' : t.length > 13 ? 'sm' : ''), statCls = t => (t.length > 12 ? ' sm' : '');
 let HIDE = prefGet('plata.hide', false), masking = false, homeDet = prefGet('plata.det', false);
 const withMask = fn => { masking = HIDE; try { return fn(); } finally { masking = false; } };
 const money = n => { if (masking) return '$ ••••'; n = Math.round((Number(n) || 0) * 100) / 100; return (n < 0 ? '-' : '') + '$ ' + NF.format(Math.abs(n)); };
@@ -225,18 +226,18 @@ function vHome() {
   // desglose por cuenta (se abre con "Ver detalle")
   const accs = allMethods().filter(accShown).map(n => ({ n, b: accBalance(n) })).sort((x, y) => Math.abs(y.b) - Math.abs(x.b));
   const loose = sum(S.tx.filter(t => !t.method), t => (t.type === 'ingreso' ? 1 : -1) * t.amount), posTot = sum(accs, a => Math.max(0, a.b));
-  const drows = accs.map(a => `<button class="drow" data-act="accgo" data-n="${esc(a.n)}"><i style="background:var(--c${METHOD_SLOT[a.n] || hashSlot(a.n)})"></i><span>${esc(a.n)}${a.b > 0 && posTot ? `<small>${Math.round(a.b / posTot * 100)}%</small>` : ''}</span><b class="${a.b < 0 ? 'neg' : ''}">${money(a.b)}</b></button>`).join('')
+  const drows = accs.map(a => `<button class="drow" data-act="accsum" data-n="${esc(a.n)}"><i style="background:var(--c${METHOD_SLOT[a.n] || hashSlot(a.n)})"></i><span>${esc(a.n)}${a.b > 0 && posTot ? `<small>${Math.round(a.b / posTot * 100)}%</small>` : ''}</span><b class="${a.b < 0 ? 'neg' : ''}">${money(a.b)}</b></button>`).join('')
     + (Math.abs(loose) > 0.005 ? `<div class="drow"><i style="background:transparent;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.5)"></i><span>Sin cuenta<small>sin asignar</small></span><b class="${loose < 0 ? 'neg' : ''}">${money(loose)}</b></div>` : '');
   const eye = HIDE ? '<svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.5 6.6A17 17 0 0 0 2 12s3.6 7 10 7a10 10 0 0 0 4.2-.9M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
   return `
   <div class="card hero">
     <div class="toprow"><div class="label">Balance general</div><button class="eye" data-act="hide" aria-label="${HIDE ? 'Mostrar montos' : 'Ocultar montos'}" aria-pressed="${HIDE}">${eye}</button></div>
-    <div class="big ${balance < 0 ? 'neg' : ''} ${money(balance).length > 13 ? 'sm' : ''}">${money(balance)}</div>
+    <div class="big ${balance < 0 ? 'neg' : ''} ${bigCls(money(balance))}">${money(balance)}</div>
     ${insight}
     ${drows ? `<button class="det" data-act="hdet" aria-expanded="${homeDet}"><i></i><span>${homeDet ? 'Detalle ▴' : 'Ver detalle ▾'}</span><i></i></button><div class="drows"${homeDet ? '' : ' hidden'}>${drows}</div>` : ''}
     <div class="pair"><div><span class="label">Ingresos</span><b class="pos">${money(inc)}</b></div><div><span class="label">Gastos</span><b class="neg">${money(exp)}</b></div></div>
   </div>
-  ${owedMe || iOwe ? `<button class="card" data-act="tab" data-v="debts" style="text-align:left;width:100%"><div class="row"><div><div class="label">Me deben</div><div class="stat ${owedMe ? 'pos' : 'muted'}">${money(owedMe)}</div></div><div style="text-align:right"><div class="label">Debo</div><div class="stat ${iOwe ? 'neg' : 'muted'}">${money(iOwe)}</div></div></div></button>` : ''}
+  ${owedMe || iOwe ? `<button class="card" data-act="tab" data-v="debts" style="text-align:left;width:100%"><div class="row"><div><div class="label">Me deben</div><div class="stat ${owedMe ? 'pos' : 'muted'}${statCls(money(Math.max(owedMe, iOwe)))}">${money(owedMe)}</div></div><div style="text-align:right"><div class="label">Debo</div><div class="stat ${iOwe ? 'neg' : 'muted'}${statCls(money(Math.max(owedMe, iOwe)))}">${money(iOwe)}</div></div></div></button>` : ''}
   ${due.length ? `<h3>Vencimientos cercanos</h3><div class="list">${due.map(({ d, n }) => `
     <button class="item" data-act="debt" data-id="${d.id}"><div class="dot">${stamp(d.name)}</div><div class="grow"><div class="t">${esc(d.name)}</div>
     <div class="s ${n <= 3 ? 'warn' : ''}">${n === 0 ? 'Vence hoy' : n === 1 ? 'Vence mañana' : 'Vence en ' + n + ' días'}</div></div><div class="amt neg">${money(d.cuota)}</div></button>`).join('')}</div>` : ''}
@@ -268,7 +269,7 @@ function breakdownCard(tx, when) {
   return `<h3>${title}</h3><div class="card">
     <div class="tog" role="group" aria-label="Agrupar gastos por"><button class="${byMet ? '' : 'on'}" data-act="hseg" data-v="cat" aria-pressed="${!byMet}">Categoría</button><button class="${byMet ? 'on' : ''}" data-act="hseg" data-v="met" aria-pressed="${byMet}">Método de pago</button></div>
     <div class="rib" role="img" aria-label="${esc(rows.map(r => r.n + ' ' + Math.round(r.v / total * 100) + '%').join(', '))}">${rows.map(r => `<i style="flex:${r.v};background:var(--c${r.c})"></i>`).join('')}</div>
-    <div class="lgd">${rows.map(r => `<div><span><i style="background:var(--c${r.c})"></i><em class="n">${esc(r.n)}</em></span><b class="neg">${money(r.v)}<small>${Math.round(r.v / total * 100)}%</small></b></div>`).join('')}</div></div>`;
+    <div class="lgd${rows.some(r => money(r.v).length > 12) ? ' long' : ''}">${rows.map(r => `<div><span><i style="background:var(--c${r.c})"></i><em class="n">${esc(r.n)}</em></span><b class="neg">${money(r.v)}<small>${Math.round(r.v / total * 100)}%</small></b></div>`).join('')}</div></div>`;
 }
 // al cambiar entre categoría y método de pago solo se actualiza esa tarjeta (no se vuelve a dibujar la pantalla)
 function swapBreakdown() {
@@ -545,6 +546,31 @@ function formMove(from, to) {
   syncMove(f); accEffects(f);
 }
 const accDot = n => { const k = METHOD_SLOT[n] || hashSlot(n); return `<div class="dot${k === 5 ? ' d5' : ''}" style="background:var(--c${k})">${stamp(n)}</div>`; };
+// resumen de una cuenta (hoja): saldo, cambio del mes, entró / salió / traspasos, en qué se va y los últimos movimientos
+function sheetAccSummary(n) {
+  const now = new Date(), cur = today().slice(0, 7), k = norm(n), pe = new Date(now.getFullYear(), now.getMonth(), 0);
+  const prevEnd = `${pe.getFullYear()}-${String(pe.getMonth() + 1).padStart(2, '0')}-${String(pe.getDate()).padStart(2, '0')}`;
+  const mine = S.tx.filter(t => norm(t.method) === k && t.date.startsWith(cur)), mv = (S.moves || []).filter(m => m.date.startsWith(cur));
+  const ent = sum(mine.filter(t => t.type === 'ingreso'), t => t.amount), sal = sum(mine.filter(t => t.type === 'gasto'), t => t.amount);
+  const tra = sum(mv.filter(m => norm(m.to) === k), m => m.amount) - sum(mv.filter(m => norm(m.from) === k), m => m.amount);
+  const hoy = accBalance(n), chg = Math.round((hoy - accBalance(n, prevEnd)) * 100) / 100;
+  const byCat = {}; mine.filter(t => t.type === 'gasto').forEach(t => { byCat[t.cat] = (byCat[t.cat] || 0) + t.amount; });
+  const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]), top = cats.slice(0, 3), rest = sum(cats.slice(3), c => c[1]);
+  const slots = assignSlots(top.map(c => c[0]), c => CAT_SLOT[c] || hashSlot(c)), rows = top.map(([c, v]) => ({ c, v, s: slots[c] || 6 }));
+  if (rest > 0) rows.push({ c: 'Otras', v: rest, s: 6 });
+  sheet(n, withMask(() => {
+    const tiles = [['Entró', money(ent), 'pos'], ['Salió', money(sal), 'neg']].concat(tra ? [['Traspasos', (tra > 0 ? '+' : '−') + money(Math.abs(tra)), '']] : []);
+    const long = tiles.some(t => t[1].length > (tiles.length > 2 ? 9 : 13));   // con cifras largas las tres tarjetas pasan a una lista
+    const stats = long ? `<div class="mini3 stack">${tiles.map(t => `<div><small>${t[0]}</small><b class="${t[2]}">${t[1]}</b></div>`).join('')}</div>` : `<div class="mini3" style="grid-template-columns:repeat(${tiles.length},minmax(0,1fr))">${tiles.map(t => `<div><small>${t[0]}</small><b class="${t[2]}">${t[1]}</b></div>`).join('')}</div>`;
+    const ribbon = sal > 0 ? `<div class="rib" role="img" aria-label="En qué se va">${rows.map(r => `<i style="flex:${r.v};background:var(--c${r.s})"></i>`).join('')}</div><div class="calnote" style="margin:0 0 4px">${rows.map(r => esc(r.c) + ' ' + Math.round(r.v / sal * 100) + '%').join(' · ')} de lo que salió</div>` : '';
+    const list = accRows(n, () => true).slice(0, 3);
+    return `<div class="big ${hoy < 0 ? 'neg' : ''} ${bigCls(money(hoy))}" style="margin:0 0 2px">${money(hoy)}</div>
+    <div class="s" style="margin:0 0 12px;color:var(--muted);font-size:14px"><b class="${chg < 0 ? 'neg' : 'pos'}">${chg < 0 ? '▼' : '▲'} ${money(Math.abs(chg))}</b> este mes</div>
+    ${stats}${ribbon}
+    ${list.length ? `<div class="list">${txList(list)}</div>` : '<p class="muted" style="font-size:14px">Todavía no hay movimientos en esta cuenta.</p>'}
+    <div class="acts"><button class="btn ghost" data-act="accgo" data-n="${esc(n)}">Ver por mes</button><button class="btn" data-act="moveform" data-from="${esc(n)}">Mover plata</button></div>`;
+  }));
+}
 function sheetAccounts() {
   const rows = allMethods().filter(accShown).map(n => { const b = accBalance(n); return `<button class="item" data-act="acc" data-n="${esc(n)}">${accDot(n)}<div class="grow"><div class="t">${esc(n)}</div>${accUsed(n) ? '' : '<div class="s">Sin movimientos todavía</div>'}</div><div class="amt ${b > 0 ? 'pos' : b < 0 ? 'neg' : 'muted'}">${money(b)}</div></button>`; }).join('');
   const moves = (S.moves || []).slice().sort(byDate).slice(0, 6).map(m => `<button class="item" data-act="movedel" data-id="${m.id}"><div class="grow"><div class="t">${esc(m.from)} → ${esc(m.to)}</div><div class="s">${dayLabel(m.date)} · tocá para deshacer</div></div><div class="amt">${money(m.amount)}</div></button>`).join('');
@@ -666,7 +692,8 @@ const act = {
   hide: () => keepView(() => { HIDE = !HIDE; prefSet('plata.hide', HIDE); }),
   hdet: el => { const box = el.nextElementSibling; box.hidden = !box.hidden; homeDet = !box.hidden; prefSet('plata.det', homeDet); el.setAttribute('aria-expanded', homeDet); el.querySelector('span').textContent = homeDet ? 'Detalle ▴' : 'Ver detalle ▾'; },
   // tocar una cuenta del detalle abre Por mes mirando solo esa cuenta
-  accgo: el => { movAcc = el.dataset.n; month = today().slice(0, 7); selDay = null; movFilter = 'all'; view = 'mov'; openGroup = null; render(); scrollTo(0, 0); },
+  accsum: el => sheetAccSummary(el.dataset.n),
+  accgo: el => { movAcc = el.dataset.n; month = today().slice(0, 7); selDay = null; movFilter = 'all'; view = 'mov'; openGroup = null; closeSheet(); render(); scrollTo(0, 0); },
   movacc: el => { keepView(() => { movAcc = el.dataset.n; }); $('.chips2 .on')?.scrollIntoView({ inline: 'center', block: 'nearest' }); },
   mvundo: el => { if (confirm('¿Deshacer este traspaso? Cada cuenta vuelve a su saldo anterior.')) { S.moves = (S.moves || []).filter(m => m.id !== el.dataset.id); commit(); } },
   close: closeSheet,
