@@ -203,7 +203,7 @@ let view = 'home', month = today().slice(0, 7), openGroup = null;
 const TITLES = { home: 'Inicio', mov: 'Por mes', split: 'Dividir', groups: 'Grupos', debts: 'Deudas y cobros' };
 // aplica un cambio de estado y vuelve a dibujar sin animación y manteniendo el scroll
 function keepView(change) {
-  const y = scrollY, main = $('#main'); main.classList.add('still'); change(); render(); scrollTo(0, y);
+  const sc = $('#scroll'), y = sc.scrollTop, main = $('#main'); main.classList.add('still'); change(); render(); sc.scrollTo({ top: y, behavior: 'instant' });
   requestAnimationFrame(() => main.classList.remove('still'));
 }
 let debtsTab = 'people';   // 'people' (me deben / debo) | 'cards' (tarjetas, cuotas, préstamos)
@@ -666,7 +666,7 @@ function sheetPerson(k) {
 
 // ---------- acciones ----------
 const act = {
-  tab: el => { view = el.dataset.v; if (el.dataset.sub) debtsTab = el.dataset.sub; openGroup = null; render(); scrollTo(0, 0); },
+  tab: el => { view = el.dataset.v; if (el.dataset.sub) debtsTab = el.dataset.sub; openGroup = null; render(); $('#scroll').scrollTo({ top: 0, behavior: 'instant' }); },
   mprev: () => { month = shiftMonth(month, -1); selDay = null; render(); },
   mnext: () => { month = shiftMonth(month, 1); selDay = null; render(); },
   // cambios dentro de la misma pantalla: no reanimar ni mover el scroll
@@ -693,7 +693,7 @@ const act = {
   hdet: el => { const box = el.nextElementSibling; box.hidden = !box.hidden; homeDet = !box.hidden; prefSet('plata.det', homeDet); el.setAttribute('aria-expanded', homeDet); el.querySelector('span').textContent = homeDet ? 'Detalle ▴' : 'Ver detalle ▾'; },
   // tocar una cuenta del detalle abre Por mes mirando solo esa cuenta
   accsum: el => sheetAccSummary(el.dataset.n),
-  accgo: el => { movAcc = el.dataset.n; month = today().slice(0, 7); selDay = null; movFilter = 'all'; view = 'mov'; openGroup = null; closeSheet(); render(); scrollTo(0, 0); },
+  accgo: el => { movAcc = el.dataset.n; month = today().slice(0, 7); selDay = null; movFilter = 'all'; view = 'mov'; openGroup = null; closeSheet(); render(); $('#scroll').scrollTo({ top: 0, behavior: 'instant' }); },
   movacc: el => { keepView(() => { movAcc = el.dataset.n; }); $('.chips2 .on')?.scrollIntoView({ inline: 'center', block: 'nearest' }); },
   mvundo: el => { if (confirm('¿Deshacer este traspaso? Cada cuenta vuelve a su saldo anterior.')) { S.moves = (S.moves || []).filter(m => m.id !== el.dataset.id); commit(); } },
   close: closeSheet,
@@ -739,7 +739,7 @@ const act = {
     const msg = `Hola ${f.from.value.split(' ')[0]}! Quedamos en ${money(amt)} por "${g.name}". Pasámelo al alias ${alias}. Gracias!`;
     window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank', 'noopener');
   },
-  group: el => { openGroup = el.dataset.id; render(); scrollTo(0, 0); },
+  group: el => { openGroup = el.dataset.id; render(); $('#scroll').scrollTo({ top: 0, behavior: 'instant' }); },
   gback: () => { openGroup = null; render(); },
   gdel: () => { if (confirm('¿Eliminar el grupo y todos sus gastos?')) { S.groups = S.groups.filter(g => g.id !== openGroup); openGroup = null; commit(); } },
   gexp: el => { const g = S.groups.find(x => x.id === openGroup), e = g.expenses.find(x => x.id === el.dataset.id); e.items ? formItems(g, e) : formGexp(g, e); },

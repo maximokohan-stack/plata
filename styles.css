@@ -34,8 +34,10 @@
   --r1:#4a2420;--r2:#7d3129;--r3:#d9695a;--r4:#ff8f80;--g1:#17382f;--g2:#1f6a54;--g3:#2fa585;--g4:#7ee2a8;
   --rt1:#ffd2ca;--rt2:#ffffff;--rt3:#1c0905;--rt4:#2a0f0a;--gt1:#c4eedd;--gt2:#ffffff;--gt3:#04150e;--gt4:#04150e}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;text-size-adjust:100%}
-html,body{overscroll-behavior-y:contain}   /* evita recargar sin querer al deslizar hacia abajo */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+html,body{overscroll-behavior-y:contain}
+/* la página se desliza dentro de este contenedor (la barra del propio navegador no se puede ocultar con CSS, la de un contenedor sí) */
+.scroll{position:fixed;inset:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;scroll-behavior:smooth}   /* evita recargar sin querer al deslizar hacia abajo */
 *{scrollbar-width:none}*::-webkit-scrollbar{display:none}   /* sin barra de desplazamiento visible (se sigue pudiendo deslizar) */
 html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 var(--sans);font-variant-numeric:tabular-nums}
 button,input,select{font:inherit;color:inherit}
