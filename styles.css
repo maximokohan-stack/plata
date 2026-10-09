@@ -36,6 +36,7 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 html,body{overscroll-behavior-y:contain}   /* evita recargar sin querer al deslizar hacia abajo */
+*{scrollbar-width:none}*::-webkit-scrollbar{display:none}   /* sin barra de desplazamiento visible (se sigue pudiendo deslizar) */
 html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 var(--sans);font-variant-numeric:tabular-nums}
 button,input,select{font:inherit;color:inherit}
 button{cursor:pointer;border:0;background:none;transition:transform .15s var(--ease),background-color .2s,opacity .2s}
