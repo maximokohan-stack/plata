@@ -75,8 +75,10 @@ function calcDraw0() {
     const tip = +($('#calc input[name=tip]:checked')?.value || 0), step = +($('#c-round')?.value || 0);
     $('#c-n').textContent = calcN;
     if (!(total > 0)) return hint('Ingresá el total de la cuenta.');
-    const withTip = total * (1 + tip / 100), exact = withTip / calcN, each = step ? Math.ceil(exact / step) * step : Math.round(exact * 100) / 100, extra = each * calcN - withTip;
-    $('#c-out').innerHTML = `<div class="label">Cada uno pone</div><div class="big">${money(each)}</div><div class="muted">${tip ? `Cuenta ${money(total)} + propina ${tip}% (${money(withTip - total)}) = ${money(withTip)}` : `Cuenta ${money(total)}`}, entre ${calcN} personas${extra > 0.5 ? ` · sobran ${money(extra)} por el redondeo` : ''}</div>`;
+    // todo en centavos enteros (con decimales de coma flotante, 48.000 + 10% daba 52.800,00000000001 y el redondeo subía un escalón de más)
+    const totalC = Math.round(total * 100), withTipC = Math.round(totalC * (100 + tip) / 100), stepC = step * 100;
+    const eachC = Math.ceil(withTipC / calcN / (stepC || 1) - 1e-9) * (stepC || 1), withTip = withTipC / 100, each = eachC / 100, extra = (eachC * calcN - withTipC) / 100;
+    $('#c-out').innerHTML = `<div class="label">Cada uno pone</div><div class="big">${money(each)}</div><div class="muted">${tip ? `Cuenta ${money(total)} + propina ${tip}% (${money(withTip - total)}) = ${money(withTip)}` : `Cuenta ${money(total)}`}, entre ${calcN} personas${extra >= 0.01 ? ` · sobran ${money(extra)} por el redondeo` : ''}</div>`;
     cText = `${head}Cuenta ${money(withTip)} entre ${calcN}: ${money(each)} cada uno.`;
     $('#c-actions').innerHTML = shareBtn; cSave = null; return;
   }
@@ -105,16 +107,16 @@ function calcDraw0() {
     if (!valid.length) return hint('Cargá los productos de la cuenta.');
     const warn = [], per = Object.fromEntries(people.map(p => [p.id, { v: 0, lines: [] }]));
     valid.forEach(i => {
-      if (!i.pids.length) return warn.push(`Marcá quién consumió “${i.name || 'un producto'}”.`);
+      if (!i.pids.length) return warn.push(`Marcá quién consumió “${esc(i.name || 'un producto')}”.`);
       i.pids.forEach(id => { const part = i.amount / i.pids.length; per[id].v += part; per[id].lines.push(`${i.name || 'Producto'} ${money(part)}`); });
     });
-    items.filter(i => !isFinite(i.amount) && i.name).forEach(i => warn.push(`Falta el precio de “${i.name}”.`));
+    items.filter(i => !isFinite(i.amount) && i.name).forEach(i => warn.push(`Falta el precio de “${esc(i.name)}”.`));
     const sub = sum(valid, i => i.amount), total = sub * (1 + tip / 100);
     if (cScanTotal != null && Math.abs(sub - cScanTotal) > 1) warn.push(`La suma (${money(sub)}) no coincide con el total del ticket (${money(cScanTotal)}). Revisá los productos.`);
-    const res = people.map(p => ({ name: p.name, v: per[p.id].v * (1 + tip / 100), why: per[p.id].lines.join(' + ') }));
+    const res = people.map(p => ({ name: p.name, v: per[p.id].v * (1 + tip / 100), why: per[p.id].lines.map(esc).join(' + '), whyTxt: per[p.id].lines.join(' + ') }));
     $('#c-out').innerHTML = `<div class="label">Le toca a cada uno</div>${res.map(r => rowLine(r.name, r.why || 'No consumió nada', money(r.v))).join('')}
       <div class="muted" style="margin-top:8px;font-size:13px">Total ${money(total)}${tip ? ` · incluye ${tip}% de propina (${money(total - sub)})` : ''}</div>${warn.map(w => `<div class="warn" style="margin-top:8px">⚠ ${w}</div>`).join('')}`;
-    cText = `${head}Total ${money(total)}${tip ? ` (con ${tip}% de propina)` : ''}:\n` + res.map(r => `${r.name}: ${money(r.v)}${r.why ? ` (${r.why})` : ''}`).join('\n');
+    cText = `${head}Total ${money(total)}${tip ? ` (con ${tip}% de propina)` : ''}:\n` + res.map(r => `${r.name}: ${money(r.v)}${r.whyTxt ? ` (${r.whyTxt})` : ''}`).join('\n');
     const fixed = res.map(r => ({ n: r.name, v: Math.round(r.v * 100) / 100 }));
     cSave = warn.some(w => w.startsWith('Marcá') || w.startsWith('Falta')) ? null : { names: people.map(p => p.name), build: paidBy => [cSaveExpense(why_ || 'Cuenta', total, paidBy, fixed)] };
     $('#c-actions').innerHTML = shareBtn + (cSave ? groupBtn : ''); return;

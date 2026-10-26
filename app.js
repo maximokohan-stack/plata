@@ -110,15 +110,18 @@ const idb = () => new Promise((res, rej) => {
 // deja el estado con la forma que la app espera (listas siempre presentes, sin registros dañados)
 function normState(v) {
   const arr = x => Array.isArray(x) ? x : [], num = x => typeof x === 'number' && isFinite(x);
+  // los ids van dentro de atributos HTML (data-id="…"): un backup ajeno no puede meter ahí otra cosa que letras, números y guiones
+  const sid = o => ({ ...o, id: String(o.id ?? '').replace(/[^\w-]/g, '') || uid() });
+  const strs = x => arr(x).filter(m => typeof m === 'string');
   return {
     ...v,
-    tx: arr(v.tx).filter(t => t && typeof t.date === 'string' && num(t.amount)),
-    debts: arr(v.debts).filter(d => d && num(d.cuota) && d.cuotas > 0),
-    loans: arr(v.loans).filter(l => l && num(l.amount)).map(l => ({ ...l, person: String(l.person ?? '').trim() || 'Sin nombre', payments: arr(l.payments) })),
-    moves: arr(v.moves).filter(m => m && num(m.amount) && m.from && m.to),
+    tx: arr(v.tx).filter(t => t && typeof t.date === 'string' && num(t.amount)).map(sid),
+    debts: arr(v.debts).filter(d => d && num(d.cuota) && d.cuotas > 0).map(sid),
+    loans: arr(v.loans).filter(l => l && num(l.amount)).map(l => ({ ...sid(l), person: String(l.person ?? '').trim() || 'Sin nombre', payments: arr(l.payments).filter(Boolean).map(sid) })),
+    moves: arr(v.moves).filter(m => m && num(m.amount) && m.from && m.to).map(sid),
     customMethods: arr(v.customMethods).filter(x => typeof x === 'string' && x.trim()),
     accInit: v.accInit && typeof v.accInit === 'object' ? v.accInit : {},
-    groups: arr(v.groups).filter(g => g && Array.isArray(g.members)).map(g => ({ ...g, expenses: arr(g.expenses).filter(e => e && num(e.amount) && Array.isArray(e.split)), payments: arr(g.payments) }))
+    groups: arr(v.groups).filter(g => g && Array.isArray(g.members)).map(g => ({ ...sid(g), members: strs(g.members), hidden: strs(g.hidden), expenses: arr(g.expenses).filter(e => e && num(e.amount) && Array.isArray(e.split)).map(sid), payments: arr(g.payments).filter(Boolean).map(sid) }))
   };
 }
 async function load() {
@@ -137,9 +140,11 @@ async function save() {
 const commit = () => { save(); render(); };
 
 // ---------- cálculos ----------
-const loanPaid = l => sum(l.payments || [], p => p.amount);
-const loanLeft = l => Math.max(0, l.amount - loanPaid(l));
-const debtLeft = d => Math.max(0, (d.cuotas - d.cuotasPagas) * d.cuota);
+// siempre redondeado a centavos: sumar 33,33 + 33,33 + 33,34 en coma flotante dejaba restos de 1e-14 y la deuda figuraba como pendiente
+const c2 = x => Math.round(x * 100) / 100;
+const loanPaid = l => c2(sum(l.payments || [], p => p.amount));
+const loanLeft = l => Math.max(0, c2(l.amount - loanPaid(l)));
+const debtLeft = d => Math.max(0, c2((d.cuotas - d.cuotasPagas) * d.cuota));
 const daysUntil = day => {
   const n = new Date(), y = n.getFullYear(), m = n.getMonth();
   let t = new Date(y, m, Math.min(day, new Date(y, m + 1, 0).getDate()));
@@ -158,10 +163,10 @@ function peopleList() {
   }
   return Object.values(map).sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
 }
-// lo que le toca a cada uno de un gasto: partes iguales, o producto por producto si trae `items`
 // integrantes activos (los "ocultos" siguen en el historial y en las cuentas, pero no aparecen para gastos nuevos)
 const gActive = g => g.members.filter(m => !(g.hidden || []).includes(m));
 const gMembersFor = (g, e) => g.members.filter(m => !(g.hidden || []).includes(m) || (e && (e.paidBy === m || (e.split || []).includes(m) || (e.items || []).some(i => (i.split || []).includes(m)))));
+// lo que le toca a cada uno de un gasto: partes iguales, por montos / porcentajes (`shares`) o producto por producto (`items`)
 function expenseShares(e) {
   const out = {}, add = (n, v) => out[n] = (out[n] || 0) + v;
   if (e.shares) Object.entries(e.shares).forEach(([n, v]) => add(n, Number(v) || 0));
@@ -188,16 +193,20 @@ function groupConsumption(g) {
   }
   return c;
 }
+// Quién le paga a quién para quedar a mano. Se trabaja en centavos enteros: si no, al pagar los importes redondeados
+// quedaban restos de fracciones de centavo y aparecía una deuda "fantasma" de $ 0,01.
 function settle(bal) {
   const c = [], d = [];
-  for (const [n, v] of Object.entries(bal)) { if (v > 0.005) c.push([n, v]); else if (v < -0.005) d.push([n, -v]); }
+  // redondeo simétrico (mismo para deudores y acreedores) y con margen contra el ruido de coma flotante: x,xx5 siempre baja
+  for (const [n, v] of Object.entries(bal)) { const k = Math.round(Math.abs(v) * 100 - 1e-7); if (k > 0) (v > 0 ? c : d).push([n, k]); }
   c.sort((a, b) => b[1] - a[1]); d.sort((a, b) => b[1] - a[1]);
   const out = []; let i = 0, j = 0;
   while (i < c.length && j < d.length) {
     const x = Math.min(c[i][1], d[j][1]);
-    out.push({ from: d[j][0], to: c[i][0], amount: x });
+    out.push({ from: d[j][0], to: c[i][0], amount: x / 100 });
     c[i][1] -= x; d[j][1] -= x;
-    if (c[i][1] < 0.005) i++; if (d[j][1] < 0.005) j++;
+    if (c[i][1] === 0) i++;
+    if (d[j][1] === 0) j++;
   }
   return out;
 }
