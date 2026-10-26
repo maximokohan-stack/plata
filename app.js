@@ -420,7 +420,7 @@ function vSplit() {
   return `<p class="muted" style="margin:0 0 14px">Para una cuenta puntual. Si es algo que se va acumulando (un viaje, el depto), usá <button class="link" data-act="tab" data-v="groups">Grupos</button>.</p>
   <div class="grid2 tiles">${[
     ['eq', 'Partes iguales', 'Con propina y redondeo'], ['who', 'Quién puso cuánto', 'Cada uno puso distinto'],
-    ['fair', 'Por consumo', 'Cada uno paga lo suyo'], ['inc', 'Según ingresos', 'Proporcional al sueldo']
+    ['fair', 'Por consumo', 'Producto por producto'], ['inc', 'Según ingresos', 'Proporcional al sueldo']
   ].map(([m, t, d]) => `<button class="card" data-act="calcmode" data-m="${m}"><b class="tile-t">${t}</b><span class="muted">${d}</span></button>`).join('')}</div>
   <p class="muted" style="text-align:center;margin:16px 0 0;font-size:14px"><button class="link" data-act="calcexample">Probar con un ejemplo</button> · hielo, fernet y pizzas entre 4</p>`;
 }
