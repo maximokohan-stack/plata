@@ -2,7 +2,7 @@
 /* Compra por producto: cada ítem del ticket lo "financian" solo quienes lo consumieron.
    Se puede cargar a mano o sacarle una foto al ticket y que Claude lea productos y precios. */
 
-let itemsGroup = null, scannedTotal = null;
+let itemsGroup = null, scannedTotal = null, itemsMembers = null;
 
 const ITEMS_PROMPT = `Sos un lector de tickets y facturas de Argentina (supermercado, restaurante, servicios como internet, luz o celular, etc.). Respondé SOLO con un JSON (sin markdown ni texto extra) con esta forma:
 {"store": string|null, "items": [{"name": string, "amount": number}], "total": number|null}
@@ -39,10 +39,10 @@ const itemRow = (g, it = {}) => `<div class="irow"><div class="irow-top">
   <input type="text" class="i-name" placeholder="Producto" value="${esc(it.name || '')}" aria-label="Producto">
   ${MI(`<input type="text" class="i-amt" inputmode="decimal" placeholder="0" value="${fmtIn(it.amount)}" aria-label="Precio">`)}
   <button type="button" class="icon-btn" data-act="itemrm" aria-label="Quitar producto">✕</button></div>
-  <div class="checks">${g.members.map(m => `<label><input type="checkbox" class="i-m" value="${esc(m)}" ${!it.split || it.split.includes(m) ? 'checked' : ''}>${esc(m)}</label>`).join('')}</div></div>`;
+  <div class="checks">${(itemsMembers || g.members).map(m => `<label><input type="checkbox" class="i-m" value="${esc(m)}" ${!it.split || it.split.includes(m) ? 'checked' : ''}>${esc(m)}</label>`).join('')}</div></div>`;
 
 function formItems(g, e) {
-  itemsGroup = g; scannedTotal = null;
+  itemsGroup = g; scannedTotal = null; itemsMembers = gMembersFor(g, e);
   const rows = e?.items?.length ? e.items.map(it => itemRow(g, it)).join('') : itemRow(g);
   sheet(e ? 'Editar compra' : 'Compra por producto', `<form data-form="items" data-id="${e?.id || ''}">
     <p class="muted" style="margin:0;font-size:14px">Marcá quién consumió cada producto: cada uno paga solo lo suyo.</p>
@@ -50,7 +50,7 @@ function formItems(g, e) {
       <label class="btn ghost sm ai-only" style="cursor:pointer;flex-direction:row;color:var(--ink);font-size:14px"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Escanear ticket<input type="file" id="scan-file" accept="image/*,application/pdf" hidden></label>
       <span id="scan-status" class="muted" style="font-size:13px"></span></div>
     ${field('Dónde (opcional)', `<input type="text" name="desc" value="${esc(e?.desc || '')}" placeholder="Ej: Supermercado">`)}
-    <div class="grid2" style="margin:0">${field('Pagó', `<select name="paidBy">${g.members.map(m => `<option ${m === (e?.paidBy || 'Yo') ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select>`)}
+    <div class="grid2" style="margin:0">${field('Pagó', `<select name="paidBy">${itemsMembers.map(m => `<option ${m === (e?.paidBy || 'Yo') ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select>`)}
       ${field('Fecha', `<input type="date" name="date" value="${e?.date || today()}">`)}</div>
     <div id="i-rows" class="prows">${rows}</div>
     <div class="row"><button type="button" class="btn ghost sm" data-act="itemadd">+ Producto</button><b id="i-total" style="font:600 20px var(--display)"></b></div>

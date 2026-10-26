@@ -159,9 +159,13 @@ function peopleList() {
   return Object.values(map).sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
 }
 // lo que le toca a cada uno de un gasto: partes iguales, o producto por producto si trae `items`
+// integrantes activos (los "ocultos" siguen en el historial y en las cuentas, pero no aparecen para gastos nuevos)
+const gActive = g => g.members.filter(m => !(g.hidden || []).includes(m));
+const gMembersFor = (g, e) => g.members.filter(m => !(g.hidden || []).includes(m) || (e && (e.paidBy === m || (e.split || []).includes(m) || (e.items || []).some(i => (i.split || []).includes(m)))));
 function expenseShares(e) {
   const out = {}, add = (n, v) => out[n] = (out[n] || 0) + v;
-  if (e.items?.length) e.items.forEach(it => { if (it.split?.length) it.split.forEach(n => add(n, it.amount / it.split.length)); });
+  if (e.shares) Object.entries(e.shares).forEach(([n, v]) => add(n, Number(v) || 0));
+  else if (e.items?.length) e.items.forEach(it => { if (it.split?.length) it.split.forEach(n => add(n, it.amount / it.split.length)); });
   else e.split.forEach(n => add(n, e.amount / e.split.length));
   return out;
 }
@@ -417,7 +421,8 @@ function vSplit() {
   <div class="grid2 tiles">${[
     ['eq', 'Partes iguales', 'Con propina y redondeo'], ['who', 'Quién puso cuánto', 'Cada uno puso distinto'],
     ['fair', 'Por consumo', 'Cada uno paga lo suyo'], ['inc', 'Según ingresos', 'Proporcional al sueldo']
-  ].map(([m, t, d]) => `<button class="card" data-act="calcmode" data-m="${m}"><b class="tile-t">${t}</b><span class="muted">${d}</span></button>`).join('')}</div>`;
+  ].map(([m, t, d]) => `<button class="card" data-act="calcmode" data-m="${m}"><b class="tile-t">${t}</b><span class="muted">${d}</span></button>`).join('')}</div>
+  <p class="muted" style="text-align:center;margin:16px 0 0;font-size:14px"><button class="link" data-act="calcexample">Probar con un ejemplo</button> · hielo, fernet y pizzas entre 4</p>`;
 }
 
 function vGroups() {
@@ -426,12 +431,13 @@ function vGroups() {
     if (!g) { openGroup = null; return vGroups(); }
     const bal = groupBalances(g), st = settle(bal), cons = groupConsumption(g), total = sum(g.expenses, e => e.amount);
     return `<button class="back" data-act="gback">‹ Grupos</button>
-    <div class="card hero"><div class="label">${esc(g.name)} · gastado en total</div><div class="big neg">${money(total)}</div><div class="muted">${g.members.map(esc).join(', ')}</div></div>
+    <div class="card hero"><div class="label">${esc(g.name)} · gastado en total</div><div class="big neg">${money(total)}</div></div>
+    <div class="mem">${gActive(g).map(m => `<button data-act="gedit">${esc(m)}</button>`).join('')}<button class="add" data-act="gedit">+ Integrante</button></div>
     <div class="btns" style="margin:0 0 4px"><button class="btn" data-act="newitems">Compra por producto</button><button class="btn ghost" data-act="newgexp">+ Gasto simple</button></div>
     <h3>Cómo saldar</h3><div class="list">${st.length ? st.map(s => `<button class="item" data-act="gpay" data-from="${esc(s.from)}" data-to="${esc(s.to)}" data-amt="${Math.round(s.amount * 100) / 100}"><div class="grow"><b>${esc(s.from)}</b> le paga a <b>${esc(s.to)}</b><div class="s">Tocá para registrar el pago${s.to === 'Yo' ? ' o cobrar' : ''}</div></div><div class="amt">${money(s.amount)}</div></button>`).join('') : `<div class="item muted">${g.expenses.length ? 'Todo saldado' : 'Todavía no hay nada para saldar'}</div>`}</div>
     ${(g.payments || []).length ? `<h3>Pagos registrados</h3><div class="list">${g.payments.slice().sort(byDate).map(p => `<button class="item" data-act="gpaydel" data-id="${p.id}"><div class="grow"><b>${esc(p.from)}</b> le pagó a <b>${esc(p.to)}</b><div class="s">${dayLabel(p.date)} · tocá para deshacer</div></div><div class="amt pos">${money(p.amount)}</div></button>`).join('')}</div>` : ''}
-    ${g.expenses.length ? `<h3>Quién consumió qué</h3><div class="list">${g.members.map(m => { const c = cons[m] || { consumed: 0, paid: 0 }, b = bal[m] || 0; return `<div class="item"><div class="grow"><b>${esc(m)}</b><div class="s">consumió ${money(c.consumed)} · puso ${money(c.paid)}</div></div><div class="amt ${b > 0.005 ? 'pos' : b < -0.005 ? 'neg' : 'muted'}">${b > 0.005 ? '+' : b < -0.005 ? '−' : ''}${money(Math.abs(b))}</div></div>`; }).join('')}</div>` : ''}
-    <h3>Gastos</h3>${g.expenses.length ? `<div class="list">${g.expenses.slice().sort(byDate).map(e => `<button class="item" data-act="gexp" data-id="${e.id}"><div class="grow"><div class="t">${esc(e.desc)}</div><div class="s">Pagó ${esc(e.paidBy)} · ${dayLabel(e.date)} · ${e.items?.length ? e.items.length + (e.items.length === 1 ? ' producto' : ' productos') : e.split.length === g.members.length ? 'todos' : e.split.map(esc).join(', ')}</div></div><div class="amt neg">${money(e.amount)}</div></button>`).join('')}</div>` : `<div class="list">${empty('Sin gastos', 'Sumá el primero con el botón de arriba.')}</div>`}
+    ${g.expenses.length ? `<h3>Quién consumió qué</h3><div class="list">${g.members.filter(m => !(g.hidden || []).includes(m) || cons[m]?.consumed || cons[m]?.paid || Math.abs(bal[m] || 0) > 0.005).map(m => { const c = cons[m] || { consumed: 0, paid: 0 }, b = bal[m] || 0; return `<div class="item"><div class="grow"><b>${esc(m)}</b>${(g.hidden || []).includes(m) ? ' <span class="muted">(ya no está en el grupo)</span>' : ''}<div class="s">consumió ${money(c.consumed)} · puso ${money(c.paid)}</div></div><div class="amt ${b > 0.005 ? 'pos' : b < -0.005 ? 'neg' : 'muted'}">${b > 0.005 ? '+' : b < -0.005 ? '−' : ''}${money(Math.abs(b))}</div></div>`; }).join('')}</div>` : ''}
+    <h3>Gastos</h3>${g.expenses.length ? `<div class="list">${g.expenses.slice().sort(byDate).map(e => `<button class="item" data-act="gexp" data-id="${e.id}"><div class="grow"><div class="t">${esc(e.desc)}</div><div class="s">Pagó ${esc(e.paidBy)} · ${dayLabel(e.date)} · ${e.items?.length ? e.items.length + (e.items.length === 1 ? ' producto' : ' productos') : e.mode === 'pct' ? 'por porcentaje' : e.mode === 'exact' ? 'por monto' : g.members.every(m => e.split.includes(m)) ? 'todos' : e.split.map(esc).join(', ')}</div></div><div class="amt neg">${money(e.amount)}</div></button>`).join('')}</div>` : `<div class="list">${empty('Sin gastos', 'Sumá el primero con el botón de arriba.')}</div>`}
     <div class="btns"><button class="btn danger sm" data-act="gdel">Eliminar grupo</button></div>`;
   }
   const newGroup = `<div class="btns"><button class="btn" data-act="newgroup">+ Nuevo grupo</button></div>`;
@@ -659,15 +665,37 @@ function formGroup() {
     <button class="btn block">Crear grupo</button></form>`);
 }
 function formGexp(g, e) {
+  const mem = gMembersFor(g, e), mode = e?.mode || 'eq', sh = e?.shares || {}, pc = e?.pcts || {};
+  const rows = (cls, vals, pct) => mem.map(m => `<div class="gpers"><span class="nm">${esc(m)}</span>${pct
+    ? `<span class="mi pct"><input class="${cls}" data-n="${esc(m)}" inputmode="decimal" placeholder="0" autocomplete="off" value="${fmtIn(vals[m])}" aria-label="Porcentaje de ${esc(m)}"><span class="cur" aria-hidden="true">%</span></span>`
+    : MI(`<input class="${cls}" data-n="${esc(m)}" inputmode="decimal" placeholder="0" autocomplete="off" value="${fmtIn(vals[m])}" aria-label="Monto de ${esc(m)}">`)}</div>`).join('');
   sheet(e ? 'Editar gasto' : 'Gasto del grupo', `<form data-form="gexp" data-id="${e?.id || ''}">
     ${field('Qué fue', `<input type="text" name="desc" value="${esc(e?.desc || '')}" required autofocus placeholder="Ej: cena, nafta">`)}
     ${field('Monto', MI(`<input class="money" name="amount" type="text" inputmode="decimal" placeholder="0" value="${fmtIn(e?.amount)}" required>`, true))}
-    ${field('Pagó', `<select name="paidBy">${g.members.map(m => `<option ${m === (e?.paidBy || 'Yo') ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select>`)}
-    <label>Se divide entre<div class="checks">${g.members.map(m => `<label><input type="checkbox" name="split" value="${esc(m)}" ${!e || e.split.includes(m) ? 'checked' : ''}>${esc(m)}</label>`).join('')}</div></label>
+    ${field('Pagó', `<select name="paidBy">${mem.map(m => `<option ${m === (e?.paidBy || 'Yo') ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select>`)}
+    <label>Cómo se reparte<div class="seg">${[['eq', 'Iguales'], ['exact', 'Montos'], ['pct', '%']].map(([v, t]) => `<label><input type="radio" name="gmode" value="${v}" ${v === mode ? 'checked' : ''}><span>${t}</span></label>`).join('')}</div></label>
+    <div id="g-eq" ${mode === 'eq' ? '' : 'hidden'}><label>Se divide entre<div class="checks">${mem.map(m => `<label><input type="checkbox" name="split" value="${esc(m)}" ${!e || e.split.includes(m) ? 'checked' : ''}>${esc(m)}</label>`).join('')}</div></label></div>
+    <div id="g-exact" ${mode === 'exact' ? '' : 'hidden'}>${rows('gs-amt', sh, false)}</div>
+    <div id="g-pct" ${mode === 'pct' ? '' : 'hidden'}>${rows('gs-pct', pc, true)}</div>
+    <div id="g-share" ${mode === 'eq' ? 'hidden' : ''}><div class="gleft" id="g-left" role="status"></div><button type="button" class="btn ghost sm" data-act="gequal">Repartir en partes iguales</button></div>
     ${field('Fecha', `<input type="date" name="date" value="${e?.date || today()}">`)}
     <button class="btn block">Guardar</button>
     ${e ? `<button type="button" class="btn danger block" data-act="gexpdel" data-id="${e.id}">Eliminar</button>` : ''}</form>`);
+  gDraw();
 }
+// qué falta repartir (en pesos o en %), en vivo
+function gDraw() {
+  const f = $('form[data-form=gexp]'); if (!f) return;
+  const mode = f.querySelector('[name=gmode]:checked')?.value || 'eq';
+  document.querySelectorAll('#g-eq,#g-exact,#g-pct,#g-share').forEach(el => { el.hidden = el.id === 'g-share' ? mode === 'eq' : el.id !== 'g-' + mode; });
+  const box = $('#g-left'); if (!box || mode === 'eq') return;
+  const amount = parseAmount(f.amount.value) || 0, tot = sum([...f.querySelectorAll(mode === 'pct' ? '.gs-pct' : '.gs-amt')], i => parseAmount(i.value) || 0);
+  const target = mode === 'pct' ? 100 : amount, left = Math.round((target - tot) * 100) / 100, u = v => mode === 'pct' ? v.toLocaleString('es-AR') + '%' : money(v);
+  box.className = 'gleft ' + (Math.abs(left) < 0.01 && target > 0 ? 'ok' : '');
+  box.innerHTML = Math.abs(left) < 0.01 ? (target > 0 ? '<span>Todo repartido</span><b class="pos">✓</b>' : '<span>Poné el monto para repartir</span><b></b>') : left > 0 ? `<span>Falta repartir</span><b class="neg">${u(left)}</b>` : `<span>Te pasaste</span><b class="neg">${u(-left)}</b>`;
+}
+document.addEventListener('input', e => { if (e.target.closest?.('form[data-form=gexp]')) gDraw(); });
+document.addEventListener('change', e => { if (e.target.name === 'gmode') gDraw(); });
 // Registrar el pago de una transferencia sugerida; si cobrás vos, arma el mensaje con tu alias; si pagás vos, guarda el alias de quien cobra
 function sheetPay(g, from, to, amt) {
   const mine = S.me?.alias || '', theirs = g.aliases?.[to] || '';
@@ -778,6 +806,11 @@ const act = {
   gback: () => { openGroup = null; render(); },
   gdel: () => { if (confirm('¿Eliminar el grupo y todos sus gastos?')) { S.groups = S.groups.filter(g => g.id !== openGroup); openGroup = null; commit(); } },
   gexp: el => { const g = S.groups.find(x => x.id === openGroup), e = g.expenses.find(x => x.id === el.dataset.id); e.items ? formItems(g, e) : formGexp(g, e); },
+  gequal: () => {   // reparte en partes iguales entre los integrantes de la lista (en pesos o en %)
+    const f = $('form[data-form=gexp]'), mode = f.querySelector('[name=gmode]:checked').value, ins = [...f.querySelectorAll(mode === 'pct' ? '.gs-pct' : '.gs-amt')];
+    const target = mode === 'pct' ? 100 : (parseAmount(f.amount.value) || 0), n = ins.length; if (!n || !(target > 0)) return toast('Poné primero el monto');
+    const each = Math.floor(target / n * 100) / 100; ins.forEach((i, k) => { i.value = fmtIn(k === 0 ? Math.round((target - each * (n - 1)) * 100) / 100 : each); }); gDraw();
+  },
   gexpdel: el => { const g = S.groups.find(x => x.id === openGroup); g.expenses = g.expenses.filter(e => e.id !== el.dataset.id); closeSheet(); commit(); },
   install: async () => { if (!installEv) return; installEv.prompt(); try { await installEv.userChoice; } catch { } installEv = null; closeSheet(); },
   reload: () => location.reload(),
@@ -878,9 +911,24 @@ const forms = {
     const g = { id: uid(), name: f.name.value.trim(), members, expenses: [] }; S.groups.push(g); openGroup = g.id;
   },
   gexp(f, id) {
-    const g = S.groups.find(x => x.id === openGroup), amount = parseAmount(f.amount.value), split = [...f.querySelectorAll('[name=split]:checked')].map(c => c.value);
-    if (!(amount > 0)) return toast('Monto inválido'); if (!split.length) return toast('Elegí con quién se divide');
-    const o = { id: id || uid(), desc: f.desc.value.trim() || 'Gasto', amount, paidBy: f.paidBy.value, split, date: f.date.value || today() };
+    const g = S.groups.find(x => x.id === openGroup), amount = parseAmount(f.amount.value), mode = f.querySelector('[name=gmode]:checked')?.value || 'eq';
+    if (!(amount > 0)) return toast('Monto inválido');
+    const o = { id: id || uid(), desc: f.desc.value.trim() || 'Gasto', amount, paidBy: f.paidBy.value, split: [], date: f.date.value || today() };
+    if (mode === 'eq') {
+      o.split = [...f.querySelectorAll('[name=split]:checked')].map(c => c.value);
+      if (!o.split.length) return toast('Elegí con quién se divide');
+    } else {
+      const ins = [...f.querySelectorAll(mode === 'pct' ? '.gs-pct' : '.gs-amt')].map(i => ({ n: i.dataset.n, v: parseAmount(i.value) || 0 }));
+      if (ins.some(x => x.v < 0)) return toast('Los valores no pueden ser negativos');
+      const tot = sum(ins, x => x.v), target = mode === 'pct' ? 100 : amount, left = Math.round((target - tot) * 100) / 100;
+      if (Math.abs(left) >= 0.01) return toast(left > 0 ? `Falta repartir ${mode === 'pct' ? left + '%' : money(left)}` : `Te pasaste ${mode === 'pct' ? -left + '%' : money(-left)}`);
+      const used = ins.filter(x => x.v > 0); if (!used.length) return toast('Repartí el gasto entre alguien');
+      const sh = {}; used.forEach(x => sh[x.n] = Math.round((mode === 'pct' ? amount * x.v / 100 : x.v) * 100) / 100);
+      const diff = Math.round((amount - sum(Object.values(sh), v => v)) * 100) / 100;   // centavos de redondeo: van al que más tiene
+      if (diff) { const big = Object.keys(sh).sort((a, b) => sh[b] - sh[a])[0]; sh[big] = Math.round((sh[big] + diff) * 100) / 100; }
+      o.shares = sh; o.split = Object.keys(sh); o.mode = mode;
+      if (mode === 'pct') o.pcts = Object.fromEntries(used.map(x => [x.n, x.v]));
+    }
     id ? g.expenses[g.expenses.findIndex(e => e.id === id)] = o : g.expenses.push(o);
   }
 };

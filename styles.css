@@ -336,6 +336,12 @@ body:not(.has-ai) .ai-only{display:none!important}
 .onb-acc label{margin:0;display:grid;gap:4px}.onb-acc .nm{font-weight:600}.onb-acc .mi input{font:600 20px var(--display);height:52px}
 .onb-sum{display:flex;justify-content:space-between;align-items:baseline;background:var(--surface);border-radius:22px;padding:14px 18px;margin:6px 0 14px}.onb-sum b{font:600 24px var(--display)}
 body.onb-open{overflow:hidden}
+/* integrantes del grupo y reparto por montos / % */
+.mem{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}.mem button{background:var(--chip);border-radius:20px;min-height:44px;padding:0 14px;font-weight:500;font-size:14.5px}.mem .add{background:transparent;box-shadow:inset 0 0 0 1.5px var(--line);color:var(--muted)}
+.gpers{display:grid;grid-template-columns:1fr 140px;gap:10px;align-items:center;margin:0 0 8px}.gpers>*{min-width:0}.gpers .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis}.gpers .mi input{width:100%;min-width:0;box-sizing:border-box}.gpers .mi input{height:48px;font:600 17px var(--display)}
+.mi.pct>.cur{left:auto;right:14px}.mi.pct input[inputmode]{padding-left:14px;padding-right:32px}
+.gleft{display:flex;justify-content:space-between;align-items:center;background:var(--chip);border-radius:16px;padding:11px 14px;margin:2px 0 10px;font-size:14px}.gleft b{font-weight:600}
+.mrow{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--line)}.mrow:last-of-type{border:0}.mrow b{font-weight:600}
 main.still>*{animation:none!important}
 .back{min-height:46px;display:inline-flex;align-items:center}
 :focus-visible{outline:3px solid var(--c1);outline-offset:2px}
