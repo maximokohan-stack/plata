@@ -119,6 +119,7 @@ function normState(v) {
     debts: arr(v.debts).filter(d => d && num(d.cuota) && d.cuotas > 0).map(sid),
     loans: arr(v.loans).filter(l => l && num(l.amount)).map(l => ({ ...sid(l), person: String(l.person ?? '').trim() || 'Sin nombre', payments: arr(l.payments).filter(Boolean).map(sid) })),
     moves: arr(v.moves).filter(m => m && num(m.amount) && m.from && m.to).map(sid),
+    adjusts: arr(v.adjusts).filter(a => a && num(a.amount) && typeof a.acc === 'string' && typeof a.date === 'string').map(sid),   // ajustes de saldo de una cuenta
     customMethods: arr(v.customMethods).filter(x => typeof x === 'string' && x.trim()),
     accInit: v.accInit && typeof v.accInit === 'object' ? v.accInit : {},
     groups: arr(v.groups).filter(g => g && Array.isArray(g.members)).map(g => ({ ...sid(g), members: strs(g.members), hidden: strs(g.hidden), expenses: arr(g.expenses).filter(e => e && num(e.amount) && Array.isArray(e.split)).map(sid), payments: arr(g.payments).filter(Boolean).map(sid) }))
@@ -231,7 +232,7 @@ function vHome() {
   const iOwe = sum(S.loans.filter(l => l.dir === 'debo'), loanLeft) + sum(S.debts, debtLeft);
   const due = S.debts.filter(d => d.cuotasPagas < d.cuotas && d.dueDay).map(d => ({ d, n: daysUntil(d.dueDay) })).filter(x => x.n <= 10).sort((a, b) => a.n - b.n);
   // Balance general = lo que realmente tenés: ingresos − gastos + el saldo inicial que cargaste en cada cuenta
-  const initSum = sum(Object.values(S.accInit || {}), v => Number(v) || 0), balance = inc - exp + initSum;
+  const initSum = sum(Object.values(S.accInit || {}), v => Number(v) || 0), adjSum = sum(S.adjusts || [], a => Number(a.amount) || 0), balance = inc - exp + initSum + adjSum;
   // resumen del mes: cuánto cambió el balance este mes y, si sobró plata, cuánto queda por día hasta fin de mes
   const mInc = sum(tx.filter(t => t.type === 'ingreso'), t => t.amount), mExp = sum(tx.filter(t => t.type === 'gasto'), t => t.amount), mNet = mInc - mExp;
   const nowD = new Date(), daysLeft = new Date(nowD.getFullYear(), nowD.getMonth() + 1, 0).getDate() - nowD.getDate() + 1;
@@ -248,7 +249,7 @@ function vHome() {
     <div class="big ${balance < 0 ? 'neg' : ''} ${bigCls(money(balance))}">${money(balance)}</div>
     ${insight}
     ${drows ? `<button class="det" data-act="hdet" aria-expanded="${homeDet}"><i></i><span>${homeDet ? 'Detalle ▴' : 'Ver detalle ▾'}</span><i></i></button><div class="drows"${homeDet ? '' : ' hidden'}>${drows}</div>` : ''}
-    <div class="pair"><div><span class="label">Ingresos</span><b class="pos">${money(inc)}</b></div><div><span class="label">Gastos</span><b class="neg">${money(exp)}</b></div></div>
+    <div class="pair"><div><span class="label">Ingresos del mes</span><b class="pos">${money(mInc)}</b></div><div><span class="label">Gastos del mes</span><b class="neg">${money(mExp)}</b></div></div>
   </div>
   ${owedMe || iOwe ? `<button class="card" data-act="tab" data-v="debts" style="text-align:left;width:100%"><div class="row"><div><div class="label">Me deben</div><div class="stat ${owedMe ? 'pos' : 'muted'}${statCls(money(Math.max(owedMe, iOwe)))}">${money(owedMe)}</div></div><div style="text-align:right"><div class="label">Debo</div><div class="stat ${iOwe ? 'neg' : 'muted'}${statCls(money(Math.max(owedMe, iOwe)))}">${money(iOwe)}</div></div></div></button>` : ''}
   ${due.length ? `<h3>Vencimientos cercanos</h3><div class="list">${due.map(({ d, n }) => `
@@ -324,7 +325,10 @@ const txItem = t => `
   <div class="grow"><div class="t">${esc(t.note || t.cat)}</div><div class="s">${esc([t.note ? t.cat : '', t.method].filter(Boolean).join(' · ') || ' ')}</div></div>
   <div class="amt ${t.type === 'ingreso' ? 'pos' : 'neg'}">${t.type === 'ingreso' ? '+' : '−'}${money(t.amount)}</div></button>`;
 // un traspaso entre cuentas no es ingreso ni gasto: va con el símbolo ⇄ y sin color
-const moveItem = t => `
+const moveItem = t => t.adj ? `
+  <button class="item" data-act="adjdel" data-id="${t.id}"><div class="dot tr">±</div>
+  <div class="grow"><div class="t">Ajuste de saldo</div><div class="s">Conciliación · tocá para deshacer</div></div>
+  <div class="amt">${t.amount > 0 ? '+' : '−'}${money(Math.abs(t.amount))}</div></button>` : `
   <button class="item" data-act="mvundo" data-id="${t.id}"><div class="dot tr">⇄</div>
   <div class="grow"><div class="t">${t.out ? 'Traspaso a ' : 'Traspaso desde '}${esc(t.other)}</div><div class="s">Tocá para deshacer</div></div>
   <div class="amt">${t.amount > 0 ? '+' : '−'}${money(Math.abs(t.amount))}</div></button>`;
@@ -347,7 +351,8 @@ function accRows(name, inRange) {
   const k = norm(name);
   const tx = S.tx.filter(t => norm(t.method) === k && inRange(t.date));
   const mv = (S.moves || []).filter(m => (norm(m.from) === k || norm(m.to) === k) && inRange(m.date)).map(m => { const out = norm(m.from) === k; return { _m: 1, id: m.id, date: m.date, amount: out ? -m.amount : m.amount, out, other: out ? m.to : m.from }; });
-  return [...tx, ...mv].sort(byDate);
+  const adj = (S.adjusts || []).filter(a => norm(a.acc) === k && inRange(a.date)).map(a => ({ _m: 1, adj: 1, id: a.id, acc: a.acc, date: a.date, amount: a.amount }));
+  return [...tx, ...mv, ...adj].sort(byDate);
 }
 // qué cuentas se ofrecen como fichas: las usadas, las creadas y Efectivo / Mercado Pago (los medios de fábrica sin uso no ensucian)
 const accShown = n => accUsed(n) || (S.customMethods || []).some(c => c === n) || ['Efectivo', 'Mercado Pago'].includes(n);
@@ -517,14 +522,15 @@ function ensureMethod(raw) {
   if (!m) { m = raw[0].toUpperCase() + raw.slice(1); (S.customMethods ||= []).push(m); }
   return m;
 }
-// saldo de una cuenta = saldo inicial + ingresos − gastos + traspasos que entraron − traspasos que salieron
+// saldo de una cuenta = saldo inicial + ingresos − gastos + traspasos que entraron − traspasos que salieron + ajustes de saldo
 function accBalance(name, upTo) {
   const k = norm(name), ok = d => !upTo || d <= upTo; let b = Number((S.accInit || {})[name]) || 0;
   for (const t of S.tx) if (norm(t.method) === k && ok(t.date)) b += t.type === 'ingreso' ? t.amount : -t.amount;
   for (const m of S.moves || []) if (ok(m.date)) { if (norm(m.from) === k) b -= m.amount; if (norm(m.to) === k) b += m.amount; }
+  for (const a of S.adjusts || []) if (norm(a.acc) === k && ok(a.date)) b += a.amount;
   return Math.round(b * 100) / 100;
 }
-const accUsed = n => S.tx.some(t => norm(t.method) === norm(n)) || (S.moves || []).some(m => norm(m.from) === norm(n) || norm(m.to) === norm(n)) || !!Number((S.accInit || {})[n]);
+const accUsed = n => S.tx.some(t => norm(t.method) === norm(n)) || (S.adjusts || []).some(a => norm(a.acc) === norm(n)) || (S.moves || []).some(m => norm(m.from) === norm(n) || norm(m.to) === norm(n)) || !!Number((S.accInit || {})[n]);
 function comboRender(input, showAll) {
   const acc = input.dataset.list === 'acc';
   const q = norm(input.value), cats = acc ? allMethods() : allCats(input.form.type.value), exact = cats.some(c => norm(c) === q);
@@ -603,14 +609,15 @@ function sheetAccSummary(n) {
   const mine = S.tx.filter(t => norm(t.method) === k && t.date.startsWith(cur)), mv = (S.moves || []).filter(m => m.date.startsWith(cur));
   const ent = sum(mine.filter(t => t.type === 'ingreso'), t => t.amount), sal = sum(mine.filter(t => t.type === 'gasto'), t => t.amount);
   const tra = sum(mv.filter(m => norm(m.to) === k), m => m.amount) - sum(mv.filter(m => norm(m.from) === k), m => m.amount);
+  const adjM = Math.round(sum((S.adjusts || []).filter(a => norm(a.acc) === k && a.date.startsWith(cur)), a => a.amount) * 100) / 100;
   const hoy = accBalance(n), chg = Math.round((hoy - accBalance(n, prevEnd)) * 100) / 100;
   const byCat = {}; mine.filter(t => t.type === 'gasto').forEach(t => { byCat[t.cat] = (byCat[t.cat] || 0) + t.amount; });
   const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]), top = cats.slice(0, 3), rest = sum(cats.slice(3), c => c[1]);
   const slots = assignSlots(top.map(c => c[0]), c => CAT_SLOT[c] || hashSlot(c)), rows = top.map(([c, v]) => ({ c, v, s: slots[c] || 6 }));
   if (rest > 0) rows.push({ c: 'Otras', v: rest, s: 6 });
   sheet(n, withMask(() => {
-    const tiles = [['Entró', money(ent), 'pos'], ['Salió', money(sal), 'neg']].concat(tra ? [['Traspasos', (tra > 0 ? '+' : '−') + money(Math.abs(tra)), '']] : []);
-    const long = tiles.some(t => t[1].length > (tiles.length > 2 ? 9 : 13));   // con cifras largas las tres tarjetas pasan a una lista
+    const tiles = [['Entró', money(ent), 'pos'], ['Salió', money(sal), 'neg']].concat(tra ? [['Traspasos', (tra > 0 ? '+' : '−') + money(Math.abs(tra)), '']] : []).concat(adjM ? [['Ajustes', (adjM > 0 ? '+' : '−') + money(Math.abs(adjM)), '']] : []);
+    const long = tiles.length > 3 || tiles.some(t => t[1].length > (tiles.length > 2 ? 9 : 13));   // con cifras largas las tres tarjetas pasan a una lista
     const stats = long ? `<div class="mini3 stack">${tiles.map(t => `<div><small>${t[0]}</small><b class="${t[2]}">${t[1]}</b></div>`).join('')}</div>` : `<div class="mini3" style="grid-template-columns:repeat(${tiles.length},minmax(0,1fr))">${tiles.map(t => `<div><small>${t[0]}</small><b class="${t[2]}">${t[1]}</b></div>`).join('')}</div>`;
     const ribbon = sal > 0 ? `<div class="rib" role="img" aria-label="En qué se va">${rows.map(r => `<i style="flex:${r.v};background:var(--c${r.s})"></i>`).join('')}</div><div class="calnote" style="margin:0 0 4px">${rows.map(r => esc(r.c) + ' ' + Math.round(r.v / sal * 100) + '%').join(' · ')} de lo que salió</div>` : '';
     const list = accRows(n, () => true).slice(0, 3);
@@ -630,17 +637,44 @@ function sheetAccounts() {
     ${moves ? `<h3>Últimos traspasos</h3><div class="list">${moves}</div>` : ''}`);
 }
 function sheetAcc(n) {
-  const k = norm(n), init = Number((S.accInit || {})[n]) || 0, mine = S.tx.filter(t => norm(t.method) === k), mv = S.moves || [];
+  const k = norm(n), init = Number((S.accInit || {})[n]) || 0, mine = S.tx.filter(t => norm(t.method) === k), mv = S.moves || [], myAdj = (S.adjusts || []).filter(x => norm(x.acc) === k);
   const inc = sum(mine.filter(t => t.type === 'ingreso'), t => t.amount), exp = sum(mine.filter(t => t.type === 'gasto'), t => t.amount);
-  const mi = sum(mv.filter(m => norm(m.to) === k), m => m.amount), mo = sum(mv.filter(m => norm(m.from) === k), m => m.amount), b = accBalance(n);
+  const mi = sum(mv.filter(m => norm(m.to) === k), m => m.amount), mo = sum(mv.filter(m => norm(m.from) === k), m => m.amount), ad = sum(myAdj, x => x.amount), b = accBalance(n);
   const line = (l, v, c = '') => `<div class="row" style="padding:5px 0;border-top:1px solid var(--line)"><span class="muted">${l}</span><b class="${c}">${v}</b></div>`;
-  const canDel = (S.customMethods || []).some(c => norm(c) === k) && !S.tx.some(t => norm(t.method) === k) && !mv.some(m => norm(m.from) === k || norm(m.to) === k);
+  const canDel = (S.customMethods || []).some(c => norm(c) === k) && !S.tx.some(t => norm(t.method) === k) && !mv.some(m => norm(m.from) === k || norm(m.to) === k) && !myAdj.length;
+  const adjList = myAdj.slice().sort(byDate).slice(0, 5).map(x => `<button class="item" data-act="adjdel" data-id="${x.id}"><div class="dot tr">±</div><div class="grow"><div class="t">Ajuste de saldo</div><div class="s">${dayLabel(x.date)} · tocá para deshacer</div></div><div class="amt">${x.amount > 0 ? '+' : '−'}${money(Math.abs(x.amount))}</div></button>`).join('');
   sheet(n, `<div class="card"><div class="label">Saldo</div><div class="big ${b < 0 ? 'neg' : ''}">${money(b)}</div>
-    ${line('Saldo inicial', money(init))}${line('Ingresos', '+' + money(inc), 'pos')}${line('Gastos', '−' + money(exp), 'neg')}${line('Traspasos que entraron', '+' + money(mi))}${line('Traspasos que salieron', '−' + money(mo))}</div>
-    <form data-form="accinit" data-n="${esc(n)}">${field('Saldo inicial (lo que tenías antes de usar la app)', MI(`<input class="money i-amt" name="init" type="text" inputmode="decimal" placeholder="0" value="${init ? fmtIn(init) : ''}">`, true))}
-    <button class="btn block">Guardar saldo inicial</button></form>
+    ${line('Saldo inicial', money(init))}${line('Ingresos', '+' + money(inc), 'pos')}${line('Gastos', '−' + money(exp), 'neg')}${line('Traspasos que entraron', '+' + money(mi))}${line('Traspasos que salieron', '−' + money(mo))}${ad ? line('Ajustes de saldo', (ad > 0 ? '+' : '−') + money(Math.abs(ad))) : ''}</div>
+    <form data-form="accadj" data-n="${esc(n)}">
+      <h3 style="margin:0">Ajustar al saldo real</h3>
+      <p class="muted" style="margin:0;font-size:14px">Poné lo que dice tu banco o billetera. La app registra la diferencia como un ajuste, sin tocar tus gastos ni tus ingresos.</p>
+      ${field('Saldo real', MI(`<input class="money i-amt" name="real" id="adj-real" type="text" inputmode="decimal" placeholder="${fmtIn(b) || '0'}" autocomplete="off">`, true))}
+      ${field('Al día', `<input type="date" name="date" id="adj-date" value="${today()}" max="${today()}">`)}
+      <div class="effect" id="adj-eff" role="status"></div>
+      <button class="btn block">Ajustar saldo</button></form>
+    ${adjList ? `<h3>Ajustes anteriores</h3><div class="list">${adjList}</div>` : ''}
+    <details style="margin-top:6px"><summary class="muted" style="cursor:pointer;min-height:44px;display:flex;align-items:center">Cambiar el saldo inicial</summary>
+      <form data-form="accinit" data-n="${esc(n)}">${field('Saldo inicial (lo que tenías antes de usar la app)', MI(`<input class="money i-amt" name="init" type="text" inputmode="decimal" placeholder="0" value="${init ? fmtIn(init) : ''}">`, true))}
+      <button class="btn ghost block">Guardar saldo inicial</button></form></details>
     <div class="btns"><button class="btn ghost" data-act="moveform" data-from="${esc(n)}">Mover plata desde acá</button>${canDel ? `<button class="btn danger" data-act="accdel" data-n="${esc(n)}">Eliminar cuenta</button>` : ''}</div>`);
+  adjDraw();
 }
+// diferencia entre el saldo real y lo que dice la app (a la fecha elegida), en vivo
+function adjDiff(f) {
+  const real = f.real.value.trim() ? parseAmount(f.real.value) : NaN, date = f.date.value || today();
+  if (isNaN(real)) return null;
+  const app = accBalance(f.dataset.n, date);
+  return { real, date, app, diff: Math.round((real - app) * 100) / 100 };
+}
+function adjDraw() {
+  const f = $('form[data-form=accadj]'), box = $('#adj-eff'); if (!f || !box) return;
+  const d = adjDiff(f);
+  box.innerHTML = !d ? '<span class="muted">Escribí el saldo que muestra tu cuenta.</span>'
+    : Math.abs(d.diff) < 0.005 ? `<span class="muted">La app dice ${money(d.app)}</span><b>Ya coincide ✓</b>`
+    : `<span class="muted">La app dice ${money(d.app)}</span><b class="${d.diff > 0 ? 'pos' : 'neg'}">Ajuste ${d.diff > 0 ? '+' : '−'}${money(Math.abs(d.diff))}</b>`;
+}
+document.addEventListener('input', e => { if (e.target.closest?.('form[data-form=accadj]')) adjDraw(); });
+document.addEventListener('change', e => { if (e.target.closest?.('form[data-form=accadj]')) adjDraw(); });
 function formNewAcc() {
   sheet('Nueva cuenta', `<form data-form="newacc">
     ${field('Nombre', `<input type="text" name="name" maxlength="30" placeholder="Ej: Banco Galicia, Ualá, ahorros" required autofocus>`)}
@@ -767,6 +801,12 @@ const act = {
   accsum: el => sheetAccSummary(el.dataset.n),
   accgo: el => { movAcc = el.dataset.n; month = today().slice(0, 7); selDay = null; movFilter = 'all'; view = 'mov'; openGroup = null; closeSheet(); render(); $('#scroll').scrollTo({ top: 0, behavior: 'instant' }); },
   movacc: el => { keepView(() => { movAcc = el.dataset.n; }); $('.chips2 .on')?.scrollIntoView({ inline: 'center', block: 'nearest' }); },
+  adjdel: el => {
+    const a = (S.adjusts || []).find(x => x.id === el.dataset.id); if (!a) return;
+    if (!confirm('¿Deshacer este ajuste? La cuenta vuelve al saldo que tenía antes.')) return;
+    S.adjusts = S.adjusts.filter(x => x.id !== a.id); commit();
+    if (!$('#overlay').hidden && $('#sheet-title').textContent === a.acc) sheetAcc(a.acc);
+  },
   mvundo: el => { if (confirm('¿Deshacer este traspaso? Cada cuenta vuelve a su saldo anterior.')) { S.moves = (S.moves || []).filter(m => m.id !== el.dataset.id); commit(); } },
   close: closeSheet,
   addtx: () => formTx(),
@@ -864,6 +904,12 @@ const forms = {
     if (!from || !to) return toast('Elegí desde qué cuenta y hacia cuál');
     if (norm(from) === norm(to)) return toast('Elegí dos cuentas distintas');
     (S.moves ||= []).push({ id: uid(), from: ensureMethod(from), to: ensureMethod(to), amount: Math.round(amount * 100) / 100, date: f.date.value || today() });
+  },
+  accadj(f) {
+    const d = adjDiff(f); if (!d) return toast('Escribí el saldo real');
+    if (Math.abs(d.diff) < 0.005) return toast('Ya coincide con lo que dice la app');
+    (S.adjusts ||= []).push({ id: uid(), acc: f.dataset.n, amount: d.diff, date: d.date });
+    commit(); sheetAcc(f.dataset.n); toast('Ajuste registrado'); return 'done';
   },
   accinit(f) {
     const v = f.init.value.trim() ? parseAmount(f.init.value) : 0; if (isNaN(v)) return toast('Monto inválido');
