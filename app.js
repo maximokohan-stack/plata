@@ -81,7 +81,7 @@ function fmtMoneyInput(el, e) {
   const dec = ci < 0 ? null : clean.slice(ci + 1).replace(/,/g, '').slice(0, 2);
   int = int.replace(/^0+(?=\d)/, '');
   if (!int && dec !== null) { int = '0'; sig++; }
-  const out = (neg && (int || dec !== null) ? '-' : '') + int.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (dec !== null ? ',' + dec : '');
+  const out = (neg ? '-' : '') + int.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (dec !== null ? ',' + dec : '');
   el.value = el._last = out;
   let pos = 0, n = 0; while (pos < out.length && n < sig) { if (/[\d,]/.test(out[pos])) n++; pos++; }
   try { el.setSelectionRange(pos, pos); } catch { /* algunos teclados no lo permiten */ }
@@ -218,6 +218,10 @@ function vHome() {
   // resumen del mes: cuánto cambió el balance este mes y, si sobró plata, cuánto queda por día hasta fin de mes
   const mInc = sum(tx.filter(t => t.type === 'ingreso'), t => t.amount), mExp = sum(tx.filter(t => t.type === 'gasto'), t => t.amount), mNet = mInc - mExp;
   const nowD = new Date(), daysLeft = new Date(nowD.getFullYear(), nowD.getMonth() + 1, 0).getDate() - nowD.getDate() + 1;
+  // resumen semanal (solo lectura): gastos de los últimos 7 días contra los 7 anteriores
+  const dAgo = n => new Date(Date.now() - new Date().getTimezoneOffset() * 6e4 - n * 864e5).toISOString().slice(0, 10), gasto = (from, to) => sum(S.tx.filter(t => t.type === 'gasto' && t.date > from && t.date <= to), t => t.amount);
+  const w1 = gasto(dAgo(7), today()), w0 = gasto(dAgo(14), dAgo(7));
+  const weekLine = S.tx.length ? `<div class="insight">Últimos 7 días: gastaste <b class="neg">${money(w1)}</b>${w0 ? ` · ${w1 > w0 ? '▲ ' + money(w1 - w0) + ' más' : w1 < w0 ? '▼ ' + money(w0 - w1) + ' menos' : 'igual'} que los 7 días anteriores` : ''}</div>` : '';
   const perDay = mNet > 0 && daysLeft > 0 ? Math.round(mNet / daysLeft) : 0;
   const insight = S.tx.length ? `<div class="insight"><b class="${mNet < 0 ? 'neg' : 'pos'}">${mNet < 0 ? '▼' : '▲'} ${money(Math.abs(mNet))}</b> resultado del mes${perDay ? ` · <b>${money(perDay)}</b> por día restante` : ''} <button class="info" data-act="infomes" aria-label="Qué significa esto">ⓘ</button></div>` : '';
   // desglose por cuenta (se abre con "Ver detalle")
@@ -234,7 +238,7 @@ function vHome() {
   </div>
   <div class="card" id="mes"><div class="label">Este mes · ${monthLabel(cur)}</div>
     <div class="row" style="align-items:flex-end"><div><div class="label">Ingresos</div><div class="stat pos${statCls(money(Math.max(mInc, mExp)))}">${money(mInc)}</div></div><div style="text-align:right"><div class="label">Gastos</div><div class="stat neg${statCls(money(Math.max(mInc, mExp)))}">${money(mExp)}</div></div></div>
-    ${insight}</div>
+    ${insight}${weekLine}</div>
   ${typeof backupNudge === 'function' ? backupNudge() : ''}
   <div id="bk">${breakdownCard(tx, monthLabel(cur))}</div>
   ${due.length || debtsLeft ? `<h3>Próximos pagos</h3><div class="list">${due.map(({ d, n }) => `
@@ -261,7 +265,7 @@ function assignSlots(names, pref) {
 function breakdownCard(tx, when) {
   const gastos = tx.filter(t => t.type === 'gasto'), total = sum(gastos, t => t.amount), byMet = homeSeg === 'met';
   const title = (byMet ? 'Gastos por método de pago' : 'Gastos por categoría') + (when ? ` <span class="muted" style="font:500 14px var(--sans)">· ${esc(when)}</span>` : '');
-  if (!gastos.length) return `<h3>${title}</h3><div class="card"><div class="muted">Sin gastos este mes todavía.</div></div>`;
+  if (!gastos.length) return `<h3>${title}</h3><div class="card"><div class="muted">Todavía no cargaste gastos este mes.</div></div>`;
   const bucket = {};
   gastos.forEach(t => { const k = byMet ? (t.method || 'Sin método') : t.cat; bucket[k] = (bucket[k] || 0) + t.amount; });
   const all = Object.entries(bucket).sort((a, b) => b[1] - a[1]), top = all.slice(0, 5), rest = sum(all.slice(5), e => e[1]);
@@ -344,7 +348,26 @@ function accRows(name, inRange) {
 }
 // qué cuentas se ofrecen como fichas: las usadas, las creadas y Efectivo / Mercado Pago (los medios de fábrica sin uso no ensucian)
 const accShown = n => accUsed(n) || (S.customMethods || []).some(c => c === n) || ['Efectivo', 'Mercado Pago'].includes(n);
+let movQ = { text: '', cat: '' };   // búsqueda en Movimientos
 let movAcc = 'all';   // 'all' o el nombre de la cuenta que se está mirando en Por mes
+
+// ---------- buscar en todos los movimientos ----------
+function movResults() {
+  const k = norm(movQ.text), amt = parseAmount(movQ.text), accOn = movAcc !== 'all';
+  const rows = S.tx.filter(t => (!accOn || norm(t.method) === norm(movAcc)) && (!movQ.cat || t.cat === movQ.cat) && (movFilter === 'all' || t.type === movFilter)
+    && (!k || norm([t.note, t.cat, t.method].join(' ')).includes(k) || (isFinite(amt) && amt > 0 && Core.toCents(t.amount) === Core.toCents(amt)))).sort(byDate);
+  const inc = sum(rows.filter(t => t.type === 'ingreso'), t => t.amount), exp = sum(rows.filter(t => t.type === 'gasto'), t => t.amount);
+  const chips = `<div class="fchips" role="group" aria-label="Filtrar por tipo">${[['all', 'Todos'], ['gasto', 'Gastos'], ['ingreso', 'Ingresos']].map(([v, n]) => `<button class="${movFilter === v ? 'on' : ''}" data-act="movf" data-v="${v}" aria-pressed="${movFilter === v}">${n}</button>`).join('')}</div>`;
+  return chips + `<div class="card hero slim"><div class="pair"><div><span class="label">Encontrados</span><b>${rows.length}</b></div><div><span class="label">Entró</span><b class="pos">${money(inc)}</b></div><div><span class="label">Salió</span><b class="neg">${money(exp)}</b></div></div></div>`
+    + (rows.length ? `<div class="card" style="padding:6px 14px">${txList(rows.slice(0, 150))}</div>${rows.length > 150 ? '<p class="muted" style="font-size:13px;margin:0">Mostrando los 150 más recientes: afiná la búsqueda para ver el resto.</p>' : ''}`
+      : `<div class="list">${empty('No encontré movimientos', 'Probá con otra palabra o monto, otra categoría, o quitá algún filtro.')}</div>`);
+}
+function movSearchDraw() {
+  const res = $('#mov-res'), main = $('#mov-main'); if (!res || !main) return;
+  const on = !!(movQ.text || movQ.cat); res.hidden = !on; main.hidden = on; res.innerHTML = on ? withMask(movResults) : '';
+}
+document.addEventListener('input', e => { if (e.target.id === 'mov-q') { movQ.text = e.target.value.trim(); movSearchDraw(); } });
+document.addEventListener('change', e => { if (e.target.id === 'mov-cat') { movQ.cat = e.target.value; movSearchDraw(); } });
 
 // ---------- ver por mes: resumen del mes + calendario de gasto por día + día elegido + lista ----------
 let selDay = null, movFilter = 'all';
@@ -375,7 +398,9 @@ function vMov() {
   const balance = accOn ? accBalance(movAcc, month === cur ? now : month + '-31') : inc - exp;
   const accs = [...new Set([...allMethods().filter(accShown), ...(accOn ? [findMethod(movAcc)] : [])])];
   const chips = `<div class="chips2" role="group" aria-label="Ver por cuenta"><button class="${accOn ? '' : 'on'}" data-act="movacc" data-n="all" aria-pressed="${!accOn}">Todas</button>${accs.map(n => { const on = accOn && norm(movAcc) === norm(n); return `<button class="${on ? 'on' : ''}" data-act="movacc" data-n="${esc(n)}" aria-pressed="${on}"><i style="background:var(--c${METHOD_SLOT[n] || hashSlot(n)})"></i>${esc(n)}</button>`; }).join('')}</div>`;
-  return `<button class="back" data-act="tab" data-v="home">‹ Inicio</button>` + monthNav() + chips
+  const cats = [...new Set([...allCats('gasto'), ...allCats('ingreso')])], searching = !!(movQ.text || movQ.cat);
+  const searchBar = `<div class="srch"><input type="search" id="mov-q" placeholder="Buscar por nota, categoría, cuenta o monto" value="${esc(movQ.text)}" aria-label="Buscar movimientos" autocomplete="off"><select id="mov-cat" aria-label="Filtrar por categoría"><option value="">Todas las categorías</option>${cats.map(c => `<option ${movQ.cat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>`;
+  return searchBar + chips + `<div id="mov-res" ${searching ? '' : 'hidden'}>${searching ? movResults() : ''}</div><div id="mov-main" ${searching ? 'hidden' : ''}>` + monthNav()
     + `<div class="card hero slim"><div class="pair"><div><span class="label">Entró</span><b class="pos">${money(inc)}</b></div><div><span class="label">Salió</span><b class="neg">${money(exp)}</b></div><div><span class="label">${accOn ? (month === cur ? 'Saldo hoy' : 'Saldo al cierre') : 'Quedó'}</span><b style="color:${balance < 0 ? 'var(--negx)' : 'var(--lime)'}">${money(balance)}</b></div></div></div>`
     + `<div class="cal">${cells}</div>`
     + `<div class="calkey"><span>gastaste más</span>${[4, 3, 2, 1].map(n => `<i style="background:var(--r${n})"></i>`).join('')}<i class="mid"></i>${[1, 2, 3, 4].map(n => `<i style="background:var(--g${n})"></i>`).join('')}<span>ingresó más</span></div>
@@ -383,7 +408,7 @@ function vMov() {
     + (sel ? `<div class="dayc"><div class="dh"><span style="font:inherit">${dayLong(sel)}</span><span class="${dayNet > 0 ? 'pos' : dayNet < 0 ? 'neg' : 'muted'}">${dayNet ? (dayNet > 0 ? '+' : '−') + money(Math.abs(dayNet)) : 'Sin diferencia'}</span></div>${dayTx.length ? txList(dayTx, true) : '<div class="muted" style="padding:4px 0 12px;font-size:14px">Sin movimientos este día.</div>'}</div>` : '')
     + `<div class="fchips" role="group" aria-label="Filtrar movimientos">${[['all', 'Todo el mes'], ['gasto', 'Gastos'], ['ingreso', 'Ingresos']].map(([v, n]) => `<button class="${movFilter === v ? 'on' : ''}" data-act="movf" data-v="${v}" aria-pressed="${movFilter === v}">${n}</button>`).join('')}</div>`
     + `<div class="card" style="padding:6px 14px">${txList(list)}</div>`
-    + `<div class="btns" style="margin-top:0"><button class="btn ghost sm ai-only" data-act="importmov">Importar desde captura o resumen</button></div>`;
+    + `<div class="btns" style="margin-top:0"><button class="btn ghost sm" data-act="importmov">Importar movimientos (CSV, captura o PDF)</button></div></div>`;
 }
 
 // Deudas y cobros: una sola sección con dos vistas (personas / tarjetas y cuotas)
@@ -394,7 +419,7 @@ function vDeudas() {
 }
 
 function vDebts() {
-  if (!S.debts.length) return `<div class="list">${empty('Sin deudas cargadas', 'Tarjeta, cuotas, préstamos: cargalos con el botón de abajo y seguí cuánto falta.')}</div>`;
+  if (!S.debts.length) return `<div class="list">${empty('Todavía no cargaste deudas ni cuotas', 'Tarjeta, cuotas, préstamos: cargalos con el botón de abajo y seguí cuánto falta.')}</div>`;
   const tot = sum(S.debts, debtLeft);
   return `<div class="card"><div class="label">Total pendiente</div><div class="big neg">${money(tot)}</div>
     <div class="muted">Próximas cuotas: <b class="neg">${money(sum(S.debts.filter(d => d.cuotasPagas < d.cuotas), d => cuotaAmt(d)))}</b></div></div>
@@ -852,7 +877,7 @@ function sheetPerson(k) {
 
 // ---------- acciones ----------
 const act = {
-  tab: el => { view = el.dataset.v === 'shared' ? (lastShared || 'groups') : el.dataset.v; if (view === 'split' || view === 'groups') lastShared = view; if (el.dataset.sub) debtsTab = el.dataset.sub; openGroup = null; render(); $('#scroll').scrollTo({ top: 0, behavior: 'instant' }); },
+  tab: el => { if (el.dataset.v === 'mov') movQ = { text: '', cat: '' }; view = el.dataset.v === 'shared' ? (lastShared || 'groups') : el.dataset.v; if (view === 'split' || view === 'groups') lastShared = view; if (el.dataset.sub) debtsTab = el.dataset.sub; openGroup = null; render(); $('#scroll').scrollTo({ top: 0, behavior: 'instant' }); },
   mprev: () => { month = shiftMonth(month, -1); selDay = null; render(); },
   mnext: () => { month = shiftMonth(month, 1); selDay = null; render(); },
   // cambios dentro de la misma pantalla: no reanimar ni mover el scroll

@@ -358,6 +358,10 @@ details.more>summary::-webkit-details-marker{display:none}details.more>summary::
 .stickybar{position:sticky;bottom:0;z-index:3;background:linear-gradient(transparent,var(--bg) 14px);padding:14px 0 calc(8px + env(safe-area-inset-bottom));display:grid;gap:8px}
 .rcards[hidden]{display:none}.rc.cursel{width:100%;border-radius:22px;background:var(--surface);box-shadow:inset 0 0 0 1.5px var(--line)}.rc.cursel .chg{color:var(--accent);font-weight:600;font-size:14px;margin-left:auto}
 .toast .toastbtn{margin-left:8px;color:var(--lime);font-weight:700;text-decoration:underline;min-height:32px;padding:0 6px}
+.srch{display:grid;grid-template-columns:1fr;gap:8px;margin:0 0 10px}.srch input[type=search]{min-height:52px;padding:0 18px;border-radius:26px;border:0;background:var(--surface);box-shadow:inset 0 0 0 1.5px var(--line);font-size:16px;width:100%}
+.srch select{min-height:48px}
+/* escritorio: encabezado y barra de navegación alineados con la columna de contenido */
+.top,.tabs{max-width:640px;margin-left:auto;margin-right:auto}
 main.still>*{animation:none!important}
 .back{min-height:46px;display:inline-flex;align-items:center}
 :focus-visible{outline:3px solid var(--c1);outline-offset:2px}
