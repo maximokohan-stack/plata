@@ -281,3 +281,66 @@ test('lectura: gana el guardado más nuevo entre el almacén principal y la rese
   assert.equal(C.chooseNewest(a, b).n, 2); assert.equal(C.chooseNewest(b, a).n, 2);
   assert.equal(C.chooseNewest(null, a).n, 1); assert.equal(C.chooseNewest(a, null).n, 1); assert.equal(C.chooseNewest(null, null), null);
 });
+
+const clone = o => JSON.parse(JSON.stringify(o));
+
+test('pagar una cuota (la compra ya contaba como gasto): baja cuenta y deuda, no crea gasto; deshacer lo deja idéntico', () => {
+  const S = { ...base(), debts: [{ id: 'd', name: 'Tele', total: 100, cuotas: 3, cuotasPagas: 0, countAsExpense: false, payments: [] }] }, antes = clone(S), uid = counter();
+  const p = C.payInstallment(S, S.debts[0], { date: '2026-11-01', acc: 'Efectivo' }, uid);
+  assert.equal(p.amount, 33.34); assert.equal(S.debts[0].cuotasPagas, 1); assert.equal(S.tx.length, 0);
+  assert.equal(C.accBalanceC(S, 'Efectivo'), 10000000 - 3334);
+  assert.equal(C.debtLeftC(S.debts[0]), 6666);
+  assert.equal(C.undoInstallment(S, S.debts[0]), true);
+  assert.deepEqual(S, antes);
+});
+
+test('pagar una cuota como gasto (deuda vieja o préstamo): el movimiento queda vinculado y se revierte junto', () => {
+  const S = { ...base(), debts: [{ id: 'd', name: 'Préstamo', cuota: 50, cuotas: 2, cuotasPagas: 0, payments: [] }] }, antes = clone(S), uid = counter();
+  const p = C.payInstallment(S, S.debts[0], { date: '2026-11-01', acc: 'Efectivo' }, uid);
+  assert.equal(S.tx.length, 1); assert.equal(S.tx[0].payRef, p.id); assert.equal(S.tx[0].method, 'Efectivo'); assert.equal(p.txId, S.tx[0].id);
+  assert.equal(C.accBalanceC(S, 'Efectivo'), 10000000 - 5000);                       // una sola vez: el flujo viene del movimiento
+  C.payInstallment(S, S.debts[0], { date: '2026-12-01' }, uid);
+  assert.equal(S.debts[0].cuotasPagas, 2);
+  assert.equal(C.undoInstallment(S, S.debts[0]), true); assert.equal(C.undoInstallment(S, S.debts[0]), true);
+  assert.deepEqual(S, antes);
+  assert.equal(C.undoInstallment(S, S.debts[0]), false);                             // sin pagos registrados no se inventa nada
+});
+
+test('cuotas pagadas antes de esta versión (sin pago vinculado) no se pueden deshacer desde acá', () => {
+  const S = { ...base(), debts: [{ id: 'd', name: 'Viejo', cuota: 10, cuotas: 3, cuotasPagas: 2 }] };
+  assert.equal(C.undoInstallment(S, S.debts[0]), false); assert.equal(S.debts[0].cuotasPagas, 2);
+});
+
+test('gasto dividido: $ 60.000 para tres → sale $ 60.000, gasto propio $ 20.000, $ 40.000 por recuperar sin mover cuentas', () => {
+  const S = base(), { tx, loans } = C.shareExpense({ paid: 60000, names: ['Ana', 'Pedro'], cat: 'Comida', note: 'cena', date: '2026-10-10', method: 'Mercado Pago' }, counter());
+  S.tx.push(tx); S.loans.push(...loans);
+  assert.equal(tx.amount, 20000); assert.equal(tx.paid, 60000);
+  assert.deepEqual(loans.map(l => [l.person, l.amount, l.link === tx.id]), [['Ana', 20000, true], ['Pedro', 20000, true]]);
+  assert.equal(C.accBalanceC(S, 'Mercado Pago'), 5000000 - 6000000);
+  assert.equal(sum(S.loans.map(C.loanLeftC)), 4000000);
+});
+
+test('gasto dividido: $ 100 entre 3 conserva el total y el centavo sobrante es de quien pagó', () => {
+  const { tx, loans } = C.shareExpense({ paid: 100, names: ['Ana', 'Pedro'], cat: 'Comida', date: '2026-10-10', method: 'Efectivo' }, counter());
+  assert.deepEqual([tx.amount, ...loans.map(l => l.amount)], [33.34, 33.33, 33.33]);
+  assert.equal(C.toCents(tx.amount) + sum(loans.map(l => C.toCents(l.amount))), 10000);
+});
+
+test('cobros y pagos de préstamos: cobrar sube la cuenta y baja lo pendiente; deshacer el cobro lo revierte', () => {
+  const S = base(); S.loans.push({ id: 'l', dir: 'me-deben', person: 'Ana', amount: 20000, date: '2026-10-10', payments: [] });
+  const antes = clone(S);
+  S.loans[0].payments.push({ id: 'p', amount: 20000, date: '2026-10-12', acc: 'Efectivo' });
+  assert.equal(C.accBalanceC(S, 'Efectivo'), 10000000 + 2000000); assert.equal(C.loanLeftC(S.loans[0]), 0);
+  S.loans[0].payments = S.loans[0].payments.filter(x => x.id !== 'p');
+  assert.deepEqual(S, antes);
+});
+
+test('importación: deshacer quita lo importado que sigue igual y respeta lo que editaste', () => {
+  const S = base(), mk = (id, note, amount) => ({ id, type: 'gasto', amount, cat: 'Comida', note, date: '2026-10-01', method: 'Efectivo', imp: 'b1' });
+  S.tx.push(mk('t1', 'a', 10), mk('t2', 'b', 20), mk('t3', 'c', 30));
+  S.imports = [{ id: 'b1', n: 3, items: S.tx.map(x => ({ id: x.id, fp: C.fingerprint(x) })) }];
+  S.tx[1].note = 'b editado'; S.tx = S.tx.filter(x => x.id !== 't3');
+  assert.deepEqual(C.undoImport(S, 'b1'), { removed: 1, kept: 1, gone: 1 });
+  assert.deepEqual(S.tx.map(x => x.id), ['t2']); assert.equal(S.imports.length, 0);
+  assert.equal(C.undoImport(S, 'nada'), null);
+});

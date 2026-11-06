@@ -263,6 +263,42 @@
     return { movements: tx.length, accounts: Object.keys(v.accInit || {}).length + arr(v.customMethods).length, loans: arr(v.loans).length, debts: arr(v.debts).length, groups: arr(v.groups).length, from: dates[0] || null, to: dates.at(-1) || null, version: versionOf(v), exportedAt: v._meta?.at || null };
   }
 
+  // ---------- operaciones (mutan el estado que reciben; la app las llama y las pruebas las ejercitan igual) ----------
+  // Pagar una cuota: queda un pago con vínculo estable (y, si la deuda cuenta cada cuota como gasto, el movimiento vinculado).
+  function payInstallment(S, d, { amount, date, acc } = {}, uid) {
+    const i = d.cuotasPagas, amt = round2(amount ?? fromCents(cuotaAmountC(d, i))), p = { id: uid(), n: i, amount: amt, date: date || '', ...(acc ? { acc } : {}) };
+    if (d.countAsExpense !== false) {
+      const t = { id: uid(), type: 'gasto', amount: amt, cat: 'Deudas', note: `${d.name} · cuota ${i + 1}/${d.cuotas}`, date: p.date, debtRef: d.id, payRef: p.id, ...(acc ? { method: acc } : {}) };
+      (S.tx ||= []).push(t); p.txId = t.id;
+    }
+    (d.payments ||= []).push(p); d.cuotasPagas++;
+    return p;
+  }
+  // Deshace el último pago: el movimiento y la cuota vuelven juntos a como estaban. Falso si no hay un pago registrado que corresponda.
+  function undoInstallment(S, d) {
+    const p = (d.payments || []).at(-1);
+    if (!p || p.n !== d.cuotasPagas - 1) return false;
+    if (p.txId) S.tx = S.tx.filter(t => t.id !== p.txId);
+    d.payments.pop(); d.cuotasPagas--;
+    return true;
+  }
+  // Gasto dividido: pagaste `paid` por vos y por `names.length` personas más. Sale `paid` de la cuenta, tu gasto es tu parte
+  // (el centavo sobrante es tuyo) y el resto queda "por recuperar" como un préstamo vinculado que no mueve ninguna cuenta.
+  function shareExpense({ paid, names, cat, note, date, method }, uid) {
+    const n = names.length + 1, parts = splitCents(toCents(paid), n), id = uid();
+    const tx = { id, type: 'gasto', amount: fromCents(parts[0]), paid: round2(paid), cat, method, note: note || '', date };
+    const loans = names.map((nm, i) => ({ id: uid(), dir: 'me-deben', person: nm, amount: fromCents(parts[i + 1]), concept: note || cat, phone: '', date, payments: [], link: id }));
+    return { tx, loans };
+  }
+  const fingerprint = t => [toCents(t.amount), t.date, norm(t.cat), norm(t.method || ''), norm(t.note || '')].join('|');
+  // Deshacer una importación: solo se quita lo que sigue igual a como se importó; lo que editaste se queda.
+  function undoImport(S, batchId) {
+    const b = (S.imports || []).find(x => x.id === batchId); if (!b) return null;
+    const mine = b.items.map(it => ({ it, t: S.tx.find(t => t.id === it.id) })), same = mine.filter(m => m.t && fingerprint(m.t) === m.it.fp);
+    const ids = new Set(same.map(m => m.t.id)); S.tx = S.tx.filter(t => !ids.has(t.id)); S.imports = S.imports.filter(x => x.id !== batchId);
+    return { removed: same.length, kept: mine.filter(m => m.t && fingerprint(m.t) !== m.it.fp).length, gone: mine.filter(m => !m.t).length };
+  }
+
   // ---------- guardado seguro ----------
   // Se intenta el almacén principal y, si falla, el de reserva. Si fallan los dos, se avisa con un error: nunca se finge un guardado.
   async function persist(primary, secondary) {
@@ -275,5 +311,5 @@
   // al leer: si hubo un guardado en la reserva más nuevo que el del almacén principal, gana el más nuevo (savedAt = ISO)
   const chooseNewest = (a, b) => (!a ? b : !b ? a : String(b.savedAt || '') > String(a.savedAt || '') ? b : a);
 
-  return { persist, chooseNewest, SCHEMA, norm, toCents, fromCents, round2, sumC, splitCents, expenseTotalC, expenseSharesC, groupBalancesC, groupConsumptionC, settleC, cuotaAmountsC, debtTotalC, cuotaAmountC, debtLeftC, addMonthsClamped, cuotaDueDate, cuotaStatus, loanPaidC, loanLeftC, cashFlows, accBalanceC, totalCashC, findDuplicates, parseCSV, parseCSVLine, detectDelimiter, parseNumber, parseDate, guessColumns, csvToMovements, normalize, versionOf, needsMigration, migrate, summarize };
+  return { payInstallment, undoInstallment, shareExpense, fingerprint, undoImport, persist, chooseNewest, SCHEMA, norm, toCents, fromCents, round2, sumC, splitCents, expenseTotalC, expenseSharesC, groupBalancesC, groupConsumptionC, settleC, cuotaAmountsC, debtTotalC, cuotaAmountC, debtLeftC, addMonthsClamped, cuotaDueDate, cuotaStatus, loanPaidC, loanLeftC, cashFlows, accBalanceC, totalCashC, findDuplicates, parseCSV, parseCSVLine, detectDelimiter, parseNumber, parseDate, guessColumns, csvToMovements, normalize, versionOf, needsMigration, migrate, summarize };
 });

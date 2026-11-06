@@ -33,6 +33,7 @@ const shell = {
     <div id="ci-rows" class="prows">${ciRow()}</div>
     <div class="row" style="justify-content:flex-start;gap:10px;flex-wrap:wrap"><button class="btn ghost sm" data-act="ciadd">+ Producto</button>
       <label class="btn ghost sm ai-only" style="cursor:pointer;flex-direction:row;color:var(--ink);font-size:14px"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg> Foto de la cuenta<input type="file" id="calc-scan" accept="image/*,application/pdf" hidden></label></div>
+    <p class="muted ai-only" style="margin:0;font-size:12.5px">${aiNote('la foto o el PDF que elijas')}</p>
     <div id="c-scan" class="muted" style="font-size:14px" hidden></div>
     <label>Propina<div class="seg">${[0, 10, 15, 20].map((p, i) => `<label><input type="radio" name="tip" value="${p}" ${i ? '' : 'checked'}><span>${p ? p + '%' : 'Sin'}</span></label>`).join('')}</div></label>`,
   inc: () => `<p class="muted" style="margin:0;font-size:14px">Cada uno aporta el mismo porcentaje de su ingreso, así nadie banca más de lo que puede.</p>

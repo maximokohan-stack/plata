@@ -40,6 +40,8 @@ function clearKey(provider) {
   try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch { }
   syncAi();
 }
+// aviso previo a cualquier envío: qué se manda y a quién
+const aiNote = what => `Se envía ${what} a ${PROVIDERS[getCfg().provider].name} (con tu API key). No se envía nada más.`;
 // las funciones de IA solo aparecen si hay una API key cargada
 function syncAi() { document.body.classList.toggle('has-ai', !!getCfg().apiKey); }
 

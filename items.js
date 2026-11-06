@@ -49,6 +49,7 @@ function formItems(g, e) {
     <div class="row" style="justify-content:flex-start;gap:10px;flex-wrap:wrap">
       <label class="btn ghost sm ai-only" style="cursor:pointer;flex-direction:row;color:var(--ink);font-size:14px"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Escanear ticket<input type="file" id="scan-file" accept="image/*,application/pdf" hidden></label>
       <span id="scan-status" class="muted" style="font-size:13px"></span></div>
+    <p class="muted ai-only" style="margin:0;font-size:12.5px">${aiNote('la foto o el PDF que elijas')}</p>
     ${field('Dónde (opcional)', `<input type="text" name="desc" value="${esc(e?.desc || '')}" placeholder="Ej: Supermercado">`)}
     <div class="grid2" style="margin:0">${field('Pagó', `<select name="paidBy">${itemsMembers.map(m => `<option ${m === (e?.paidBy || 'Yo') ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select>`)}
       ${field('Fecha', `<input type="date" name="date" value="${e?.date || today()}">`)}</div>

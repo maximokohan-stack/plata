@@ -4,7 +4,7 @@
 
 const TOOLS = [
   { name: 'get_snapshot', description: 'Resumen de las finanzas del usuario: ingresos, gastos y gasto por categoría del mes, quién le debe y a quién le debe, deudas con cuotas y grupos de gastos compartidos. Usalo antes de responder cualquier pregunta sobre sus números.',
-    input_schema: { type: 'object', properties: { month: { type: 'string', description: 'Mes en formato YYYY-MM. Por defecto el mes actual.' } } } },
+    input_schema: { type: 'object', properties: { month: { type: 'string', description: 'Mes en formato YYYY-MM. Por defecto el mes actual.' }, sections: { type: 'array', items: { type: 'string', enum: ['summary', 'categories', 'people', 'debts', 'groups'] }, description: 'Qué secciones traer. Pedí SOLO las que necesitás para responder: summary (ingresos, gastos y gasto por categoría y método del mes; es la de por defecto), categories (para registrar un movimiento), people (quién te debe o le debés), debts (deudas con cuotas), groups (gastos compartidos).' } } } },
   { name: 'list_transactions', description: 'Lista movimientos (gastos e ingresos) de un mes, opcionalmente filtrados por categoría. Más recientes primero.',
     input_schema: { type: 'object', properties: { month: { type: 'string', description: 'YYYY-MM' }, category: { type: 'string' }, limit: { type: 'integer', description: 'Máximo de resultados (default 30)' } } } },
   { name: 'add_transaction', description: 'Registra un gasto o un ingreso. Categorías de gasto de fábrica: ' + CATS.gasto.map(c => c[0]).join(', ') + '; de ingreso: ' + CATS.ingreso.map(c => c[0]).join(', ') + '. El usuario también tiene categorías propias (ver "categories" en get_snapshot): usá una existente si encaja; si ninguna encaja, podés crear una nueva con un nombre corto.',
@@ -21,17 +21,23 @@ const r2 = n => Math.round(n * 100) / 100;
 const findDebt = n => S.debts.find(d => d.name.toLowerCase() === n.toLowerCase()) || S.debts.find(d => d.name.toLowerCase().includes(n.toLowerCase()));
 
 const runTool = {
-  get_snapshot({ month: m } = {}) {
+  get_snapshot({ month: m, sections } = {}) {
+    const want = new Set(Array.isArray(sections) && sections.length ? sections : ['summary']);   // solo se envía lo que se pidió
     m = /^\d{4}-\d{2}$/.test(m || '') ? m : today().slice(0, 7);
     const tx = S.tx.filter(t => t.date.startsWith(m)), byCat = {};
     tx.filter(t => t.type === 'gasto').forEach(t => byCat[t.cat] = r2((byCat[t.cat] || 0) + t.amount));
     return {
-      today: today(), month: m, currency: 'ARS', categories: { gasto: allCats('gasto'), ingreso: allCats('ingreso') },
+      today: today(), month: m, currency: 'ARS',
+      ...(want.has('categories') ? { categories: { gasto: allCats('gasto'), ingreso: allCats('ingreso') } } : {}),
+      ...(want.has('summary') ? {
       income: r2(sum(tx.filter(t => t.type === 'ingreso'), t => t.amount)), expenses: r2(sum(tx.filter(t => t.type === 'gasto'), t => t.amount)), expensesByCategory: byCat,
-      expensesByPaymentMethod: tx.filter(t => t.type === 'gasto' && t.method).reduce((o, t) => (o[t.method] = r2((o[t.method] || 0) + t.amount), o), {}),
-      people: peopleList().map(p => ({ name: p.name, net: r2(p.net), meaning: p.net > 0 ? 'te debe' : p.net < 0 ? 'le debés' : 'saldado' })),
-      debts: S.debts.map(d => ({ name: d.name, installmentsPaid: d.cuotasPagas, installmentsTotal: d.cuotas, installmentAmount: cuotaAmt(d), remaining: r2(debtLeft(d)), dueDay: d.dueDay || null })),
-      groups: S.groups.map(g => ({ name: g.name, total: r2(sum(g.expenses, e => e.amount)), toSettle: settle(groupBalances(g)).map(s => ({ from: s.from, to: s.to, amount: r2(s.amount) })) }))
+      expensesByPaymentMethod: tx.filter(t => t.type === 'gasto' && t.method).reduce((o, t) => (o[t.method] = r2((o[t.method] || 0) + t.amount), o), {}) } : {}),
+      ...(want.has('people') ? {
+      people: peopleList().map(p => ({ name: p.name, net: r2(p.net), meaning: p.net > 0 ? 'te debe' : p.net < 0 ? 'le debés' : 'saldado' })) } : {}),
+      ...(want.has('debts') ? {
+      debts: S.debts.map(d => ({ name: d.name, installmentsPaid: d.cuotasPagas, installmentsTotal: d.cuotas, installmentAmount: cuotaAmt(d), remaining: r2(debtLeft(d)), dueDay: d.dueDay || null })) } : {}),
+      ...(want.has('groups') ? {
+      groups: S.groups.map(g => ({ name: g.name, total: r2(sum(g.expenses, e => e.amount)), toSettle: settle(groupBalances(g)).map(s => ({ from: s.from, to: s.to, amount: r2(s.amount) })) })) } : {})
     };
   },
   list_transactions({ month: m, category, limit } = {}) {
@@ -77,10 +83,10 @@ const RECEIPT = {
 };
 
 // ---------- chat ----------
-const chat = { msgs: [], ui: [], busy: false, att: null };   // att: archivo adjunto que espera ser enviado
+const chat = { msgs: [], ui: [], busy: false, att: null, retry: false, turnMutated: false };   // att: archivo adjunto que espera ser enviado
 const SYSTEM = () => `Sos el asistente de "Plata", una app personal de finanzas. Hablás en español rioplatense, claro y breve (esto se lee en un celular). Hoy es ${today()}; la moneda es el peso argentino (ARS).
 Tenés herramientas para leer los datos del usuario y para registrar cosas. Reglas:
-- Para cualquier pregunta sobre sus números, consultá primero con get_snapshot o list_transactions; nunca inventes cifras.
+- Para cualquier pregunta sobre sus números, consultá primero con get_snapshot o list_transactions; nunca inventes cifras. Pedí solo las secciones que necesitás: lo que consultás se envía al proveedor de IA.
 - Cuando el usuario cuente un gasto, ingreso, préstamo o pago, registralo con la herramienta correspondiente. Si falta un dato imprescindible (monto, o quién es la persona), preguntalo antes de registrar. No borrás nada.
 - Después de registrar, confirmá en una línea lo que anotaste.
 - El usuario puede adjuntar una foto o PDF (ticket, factura, resumen de tarjeta). Leelo con atención: decí en pocas líneas qué viste (comercio, productos principales y total) y, si es una compra o un gasto, ofrecé registrarlo con categoría y método sugeridos; registralo solo cuando el usuario lo confirme o lo haya pedido. Si la foto está borrosa o un importe no se lee seguro, decilo y pedí confirmar. Si el ticket se reparte entre varias personas, sugerí usar Grupos > Compra por producto.
@@ -91,10 +97,17 @@ const isTurnStart = m => m.role === 'user' && !(Array.isArray(m.content) && m.co
 const dropFiles = () => chat.msgs.forEach(m => { if (Array.isArray(m.content) && m.role === 'user') m.content = m.content.map(b => b.type === 'image' || b.type === 'document' ? { type: 'text', text: '[archivo adjunto ya leído]' } : b); });
 const callApi = () => llm({ system: SYSTEM(), tools: TOOLS, messages: chat.msgs, maxTokens: 4000, effort: 'low' });
 
+const MUTATORS = new Set(['add_transaction', 'add_loan', 'register_payment', 'pay_installment']);
 async function send(text, att) {
   const cfg = getCfg();
   if (!cfg.apiKey) { chat.ui.push({ r: 'err', t: 'Para usar el asistente cargá tu API key (tocá ⚙ arriba).' }); drawChat(); openCfg(); return; }
-  chat.busy = true; chat.ui.push({ r: 'user', t: text, att: att ? { name: att.name, thumb: att.thumb } : null }); chat.msgs.push({ role: 'user', content: att ? [att.block, { type: 'text', text }] : text }); drawChat();
+  chat.busy = true; chat.turnMutated = false; chat.ui.push({ r: 'user', t: text, att: att ? { name: att.name, thumb: att.thumb } : null }); chat.msgs.push({ role: 'user', content: att ? [att.block, { type: 'text', text }] : text }); drawChat();
+  await runTurn();
+}
+// El ciclo del asistente desde el estado actual de la conversación. Si algo se llegó a anotar y después falla una respuesta, el historial
+// NO se revierte: queda un botón "Reintentar" que sigue desde ahí, así no hace falta volver a pedir lo mismo (y no se duplica nada).
+async function runTurn() {
+  chat.retry = false;
   try {
     for (let i = 0; i < 8; i++) {
       const data = await callApi();
@@ -108,6 +121,7 @@ async function send(text, att) {
       for (const b of data.content.filter(b => b.type === 'tool_use')) {
         try {
           const out = runTool[b.name](b.input || {});
+          if (MUTATORS.has(b.name)) { if (!(await commit.last)) throw new Error('No se pudo guardar en este dispositivo: no se anotó.'); chat.turnMutated = true; }   // solo se confirma lo que quedó guardado
           if (RECEIPT[b.name]) chat.ui.push({ r: 'note', t: '✓ ' + RECEIPT[b.name](out) });
           results.push({ type: 'tool_result', tool_use_id: b.id, content: JSON.stringify(out) });
         } catch (e) { results.push({ type: 'tool_result', tool_use_id: b.id, content: String(e.message || e), is_error: true }); }
@@ -117,12 +131,12 @@ async function send(text, att) {
     }
   } catch (e) {
     chat.ui.push({ r: 'err', t: e.message || 'No se pudo conectar. ¿Tenés internet?' });
-    // sacamos el turno fallido para que el historial siga siendo válido
-    while (chat.msgs.length && !isTurnStart(chat.msgs.at(-1))) chat.msgs.pop();
-    chat.msgs.pop();
+    if (chat.turnMutated) { chat.retry = true; chat.ui.push({ r: 'note', t: 'Lo que ya se anotó quedó guardado. Tocá Reintentar para que siga desde ahí, sin repetirlo.' }); }
+    else { while (chat.msgs.length && !isTurnStart(chat.msgs.at(-1))) chat.msgs.pop(); chat.msgs.pop(); }   // nada se anotó: se saca el turno fallido para que el historial siga siendo válido
   }
   dropFiles(); chat.busy = false; drawChat();
 }
+act.chatretry = () => { if (chat.busy || !chat.retry) return; chat.busy = true; drawChat(); runTurn(); };
 
 const fmtMsg = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
 function drawChat() {
@@ -130,9 +144,10 @@ function drawChat() {
   const hints = ['¿Cuánto gasté este mes?', '¿Quién me debe plata?', 'Gasté 8500 en el súper', '¿En qué gasto de más?'];
   drawAtt();
   box.innerHTML = (chat.ui.length ? '' : `<div class="empty"><b>Preguntame lo que quieras</b>Puedo leer tus gastos, deudas y préstamos, anotar cosas por vos y leer fotos de tickets.</div><div class="chips">${hints.map(h => `<button data-act="hint" data-t="${esc(h)}">${esc(h)}</button>`).join('')}<button data-act="chatattach">📷 Leer un ticket</button></div>`)
-    + chat.ui.map(m => `<div class="msg ${m.r}">${m.att ? (m.att.thumb ? `<img class="att" src="${m.att.thumb}" alt="Foto adjunta">` : `<div class="attf">📄 ${esc(m.att.name)}</div>`) : ''}${fmtMsg(m.t)}</div>`).join('') + (chat.busy ? '<div class="msg bot typing"><i></i><i></i><i></i></div>' : '');
+    + chat.ui.map(m => `<div class="msg ${m.r}">${m.att ? (m.att.thumb ? `<img class="att" src="${m.att.thumb}" alt="Foto adjunta">` : `<div class="attf">📄 ${esc(m.att.name)}</div>`) : ''}${fmtMsg(m.t)}</div>`).join('') + (chat.busy ? '<div class="msg bot typing"><i></i><i></i><i></i></div>' : '') + (chat.retry && !chat.busy ? '<div class="chips"><button data-act="chatretry">↻ Reintentar sin repetir lo anotado</button></div>' : '');
   box.scrollTop = box.scrollHeight;
   $('#chat-send').disabled = chat.busy;
+  const note = $('#chat-note'); if (note) note.textContent = `Lo que escribas, y los datos que el asistente consulte para responder, se envían a ${PROVIDERS[getCfg().provider].name}. Las fotos o PDF solo cuando los adjuntás y tocás Enviar.`;
 }
 function openChat() { $('#chat').hidden = false; drawChat(); syncHistory(); if (!getCfg().apiKey) openCfg(); }
 function openCfg(provider) {
@@ -141,7 +156,8 @@ function openCfg(provider) {
   sheet('Funciones con IA (opcional)', `<form data-form="cfg">
     <p class="muted" style="margin:0">La app funciona completa sin esto. Con una API key se suman: el <b>asistente</b> (preguntale o decile "gasté 8500 en el súper"), <b>escanear tickets y facturas</b> y <b>importar movimientos</b> desde capturas. <b>Cada persona usa su propia cuenta y paga su propio uso.</b></p>
     ${field('Proveedor', `<select name="provider" id="cfg-provider">${Object.entries(PROVIDERS).map(([id, p]) => `<option value="${id}" ${id === c.provider ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>`)}
-    <p class="muted" style="margin:0;font-size:14px">Conseguí tu key en <b>${P.keyUrl}</b>. ${esc(P.note)} La key queda solo en este dispositivo y se envía directo a ${esc(P.name)}, junto con lo que el asistente o el lector necesiten consultar.</p>
+    <p class="muted" style="margin:0;font-size:14px">Conseguí tu key en <b>${P.keyUrl}</b>. ${esc(P.note)} La key queda solo en este dispositivo y se envía directo a ${esc(P.name)}.</p>
+    <p class="muted" style="margin:0;font-size:14px"><b>Qué se envía y cuándo:</b> el asistente envía lo que escribís y, solo si hace falta para responder, los datos que consulta de Plata (por ejemplo el resumen del mes o algunos movimientos). Escanear un ticket, adjuntar una foto o importar envía únicamente el archivo que elijas. Si no usás estas funciones, no se envía nada.</p>
     ${field('API key', `<input type="password" name="apiKey" autocomplete="off" placeholder="${esc(P.keyHint)}" value="${esc(c.apiKey || '')}">`)}
     ${field('Modelo', `<input type="text" name="model" id="cfg-model" autocomplete="off" autocapitalize="off" value="${esc(c.model)}">`)}
     <div id="cfg-list" class="mpick" role="listbox" aria-label="Modelos" hidden></div>

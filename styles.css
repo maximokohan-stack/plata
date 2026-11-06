@@ -347,6 +347,9 @@ body.onb-open{overflow:hidden}
 .saveerr[hidden]{display:none}.saveerr .btn{min-height:40px}.saveerr .btn.ghost{color:var(--bg);box-shadow:inset 0 0 0 1.5px currentColor}
 .insight .info{min-width:28px;min-height:28px;border-radius:50%;font-size:14px;color:inherit;opacity:.8;vertical-align:baseline}
 .cmp3{display:grid;grid-template-columns:1fr auto auto;gap:6px 14px;font-size:14.5px;margin:8px 0}.cmp3 .h{color:var(--muted);font-size:12.5px;text-align:right}.cmp3 .n{text-align:right;font-weight:600}
+.csvprev{border-collapse:collapse;font-size:12.5px;width:100%}.csvprev td{padding:4px 8px;border:1px solid var(--line);white-space:nowrap;color:var(--muted)}
+.cmpdup{display:grid;gap:8px}
+.chat-note{margin:0;padding:6px 14px 0;font-size:12px;line-height:1.35;color:var(--muted)}
 main.still>*{animation:none!important}
 .back{min-height:46px;display:inline-flex;align-items:center}
 :focus-visible{outline:3px solid var(--c1);outline-offset:2px}

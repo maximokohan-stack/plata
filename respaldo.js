@@ -24,7 +24,8 @@ function backupStatusHtml() {
       ${stale ? '<div class="muted" style="font-size:13.5px;margin-top:2px">Conviene hacer una copia ahora.</div>' : ''}</div>
     ${savedInReserve ? '<p class="warn" style="margin:0;font-size:13.5px">El almacenamiento principal no está disponible: se están guardando tus datos en una reserva del navegador. Exportá una copia.</p>' : ''}
     ${rec ? `<button class="btn ghost block" data-act="undorestore">Volver a los datos de antes de ${esc(rec.reason)} (${esc(niceDate(rec.at))})</button>` : ''}
-    ${lsGet('plata.premig') ? `<button class="btn ghost block" data-act="premig">Descargar la copia previa a la última actualización de datos</button>` : ''}`;
+    ${lsGet('plata.premig') ? `<button class="btn ghost block" data-act="premig">Descargar la copia previa a la última actualización de datos</button>` : ''}
+    ${typeof importsHtml === 'function' ? importsHtml() : ''}`;
 }
 // recordatorio en Inicio: solo si hay datos y la última copia es vieja o no existe
 function backupNudge() {

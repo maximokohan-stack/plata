@@ -779,23 +779,8 @@ function nextDueDays(d) {
   const due = Core.cuotaDueDate(d, d.cuotasPagas);
   return due ? Math.round((new Date(due + 'T12:00') - new Date(today() + 'T12:00')) / 864e5) : (d.dueDay ? daysUntil(d.dueDay) : null);
 }
-function payInstallment(d, { amount, date, acc } = {}) {
-  const i = d.cuotasPagas, amt = Core.round2(amount ?? cuotaAmt(d, i)), p = { id: uid(), n: i, amount: amt, date: date || today(), ...(acc ? { acc } : {}) };
-  if (d.countAsExpense !== false) {   // deudas viejas y las marcadas "cada cuota es un gasto": se anota el gasto, con vínculo estable
-    const t = { id: uid(), type: 'gasto', amount: amt, cat: 'Deudas', note: `${d.name} · cuota ${i + 1}/${d.cuotas}`, date: p.date, debtRef: d.id, payRef: p.id, ...(acc ? { method: acc } : {}) };
-    S.tx.push(t); p.txId = t.id;
-  }
-  (d.payments ||= []).push(p); d.cuotasPagas++;
-  return p;
-}
-// deshace el último pago registrado: el movimiento y la cuota vuelven juntos a como estaban
-function undoInstallment(d) {
-  const p = (d.payments || []).at(-1);
-  if (!p || p.n !== d.cuotasPagas - 1) return false;
-  if (p.txId) S.tx = S.tx.filter(t => t.id !== p.txId);
-  d.payments.pop(); d.cuotasPagas--;
-  return true;
-}
+const payInstallment = (d, o = {}) => Core.payInstallment(S, d, { ...o, date: o.date || today() }, uid);
+const undoInstallment = d => Core.undoInstallment(S, d);
 function sheetDebt(d) {
   const fin = d.cuotasPagas >= d.cuotas, now = today(), last = (d.payments || []).at(-1), canUndo = last && last.n === d.cuotasPagas - 1;
   const chip = st => `<span class="pill ${st === 'pagada' ? 'pos' : st === 'vencida' ? 'neg' : ''}">${st === 'pagada' ? '✓ Pagada' : st === 'vencida' ? '⚠ Vencida' : 'Pendiente'}</span>`;
@@ -1043,8 +1028,8 @@ const forms = {
       if (sh.names.length !== sh.n - 1) return toast(`Faltan nombres: son ${sh.n - 1} personas además de vos`);
       if (new Set(sh.names.map(norm)).size !== sh.names.length || sh.names.some(x => norm(x) === 'yo')) return toast('Los nombres no pueden repetirse ni ser “Yo”');
       if (!(sh.parts[0] > 0)) return toast('El monto es muy chico para dividirlo');
-      o.paid = Core.round2(amount); o.amount = sh.parts[0] / 100;
-      owed = sh.names.map((nm, i) => ({ id: uid(), dir: 'me-deben', person: nm, amount: sh.parts[i + 1] / 100, concept: o.note || o.cat, phone: '', date: o.date, payments: [], link: o.id }));
+      const r = Core.shareExpense({ paid: amount, names: sh.names, cat, note: o.note, date: o.date, method: o.method }, uid);
+      o.paid = r.tx.paid; o.amount = r.tx.amount; owed = r.loans.map(l => ({ ...l, link: o.id }));
     }
     S.lastMethod = o.method;
     id ? S.tx[S.tx.findIndex(t => t.id === id)] = o : S.tx.push(o);
