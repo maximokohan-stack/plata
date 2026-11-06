@@ -218,28 +218,17 @@ function vHome() {
   // resumen del mes: cuánto cambió el balance este mes y, si sobró plata, cuánto queda por día hasta fin de mes
   const mInc = sum(tx.filter(t => t.type === 'ingreso'), t => t.amount), mExp = sum(tx.filter(t => t.type === 'gasto'), t => t.amount), mNet = mInc - mExp;
   const nowD = new Date(), daysLeft = new Date(nowD.getFullYear(), nowD.getMonth() + 1, 0).getDate() - nowD.getDate() + 1;
-  // resumen semanal (solo lectura): gastos de los últimos 7 días contra los 7 anteriores
-  const dAgo = n => new Date(Date.now() - new Date().getTimezoneOffset() * 6e4 - n * 864e5).toISOString().slice(0, 10), gasto = (from, to) => sum(S.tx.filter(t => t.type === 'gasto' && t.date > from && t.date <= to), t => t.amount);
-  const w1 = gasto(dAgo(7), today()), w0 = gasto(dAgo(14), dAgo(7));
-  const weekLine = S.tx.length ? `<div class="insight">Últimos 7 días: gastaste <b class="neg">${money(w1)}</b>${w0 ? ` · ${w1 > w0 ? '▲ ' + money(w1 - w0) + ' más' : w1 < w0 ? '▼ ' + money(w0 - w1) + ' menos' : 'igual'} que los 7 días anteriores` : ''}</div>` : '';
-  const perDay = mNet > 0 && daysLeft > 0 ? Math.round(mNet / daysLeft) : 0;
-  const insight = S.tx.length ? `<div class="insight"><b class="${mNet < 0 ? 'neg' : 'pos'}">${mNet < 0 ? '▼' : '▲'} ${money(Math.abs(mNet))}</b> resultado del mes${perDay ? ` · <b>${money(perDay)}</b> por día restante` : ''} <button class="info" data-act="infomes" aria-label="Qué significa esto">ⓘ</button></div>` : '';
-  // desglose por cuenta (se abre con "Ver detalle")
-  const accs = allMethods().filter(accShown).map(n => ({ n, b: accBalance(n) })).sort((x, y) => Math.abs(y.b) - Math.abs(x.b));
-  const loose = sum(S.tx.filter(t => !t.method), t => (t.type === 'ingreso' ? 1 : -1) * t.amount), posTot = sum(accs, a => Math.max(0, a.b));
-  const drows = accs.map(a => `<button class="drow" data-act="accsum" data-n="${esc(a.n)}"><i style="background:var(--c${METHOD_SLOT[a.n] || hashSlot(a.n)})"></i><span>${esc(a.n)}${a.b > 0 && posTot ? `<small>${Math.round(a.b / posTot * 100)}%</small>` : ''}</span><b class="${a.b < 0 ? 'neg' : ''}">${money(a.b)}</b></button>`).join('')
-    + (Math.abs(loose) > 0.005 ? `<div class="drow"><i style="background:transparent;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.5)"></i><span>Sin cuenta<small>sin asignar</small></span><b class="${loose < 0 ? 'neg' : ''}">${money(loose)}</b></div>` : '');
-  const eye = HIDE ? '<svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.5 6.6A17 17 0 0 0 2 12s3.6 7 10 7a10 10 0 0 0 4.2-.9M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const insight = S.tx.length ? `<div class="insight"><b class="${mNet < 0 ? 'neg' : 'pos'}">${mNet < 0 ? '▼' : '▲'} ${money(Math.abs(mNet))}</b> este mes${mNet > 0 && daysLeft > 0 ? ` · te quedan <b>${money(Math.round(mNet / daysLeft))}</b> por día` : ''}</div>` : '';
+  const drows = allMethods().filter(n => accShown(n)).map(n => ({ n, b: accBalance(n) })).map(({ n, b }) => `<div class="drow"><i style="background:var(--lime)"></i><span>${esc(n)}</span><b class="${b < 0 ? 'neg' : ''}">${money(b)}</b></div>`).join('');
+  const eye = HIDE ?'<svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.5 6.6A17 17 0 0 0 2 12s3.6 7 10 7a10 10 0 0 0 4.2-.9M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
   return `
   <div class="card hero">
-    <div class="toprow"><div class="label">Tu plata hoy</div><button class="eye" data-act="hide" aria-label="${HIDE ? 'Mostrar montos' : 'Ocultar montos'}" aria-pressed="${HIDE}">${eye}</button></div>
+    <div class="toprow"><div class="label">Balance general</div><button class="eye" data-act="hide" aria-label="${HIDE ? 'Mostrar montos' : 'Ocultar montos'}" aria-pressed="${HIDE}">${eye}</button></div>
     <div class="big ${balance < 0 ? 'neg' : ''} ${bigCls(money(balance))}">${money(balance)}</div>
+    ${insight}
     ${drows ? `<button class="det" data-act="hdet" aria-expanded="${homeDet}"><i></i><span>${homeDet ? 'Detalle ▴' : 'Ver detalle ▾'}</span><i></i></button><div class="drows"${homeDet ? '' : ' hidden'}>${drows}</div>` : ''}
+    <div class="pair"><div><span class="label">Ingresos del mes</span><b class="pos">${money(mInc)}</b></div><div><span class="label">Gastos del mes</span><b class="neg">${money(mExp)}</b></div></div>
   </div>
-  <div class="card" id="mes"><div class="label">Este mes · ${monthLabel(cur)}</div>
-    <div class="row" style="align-items:flex-end"><div><div class="label">Ingresos</div><div class="stat pos${statCls(money(Math.max(mInc, mExp)))}">${money(mInc)}</div></div><div style="text-align:right"><div class="label">Gastos</div><div class="stat neg${statCls(money(Math.max(mInc, mExp)))}">${money(mExp)}</div></div></div>
-    ${insight}${weekLine}</div>
-  ${typeof backupNudge === 'function' ? backupNudge() : ''}
   <div id="bk">${breakdownCard(tx, monthLabel(cur))}</div>
   ${due.length || debtsLeft ? `<h3>Próximos pagos</h3><div class="list">${due.map(({ d, n }) => `
     <button class="item" data-act="debt" data-id="${d.id}"><div class="dot">${stamp(d.name)}</div><div class="grow"><div class="t">${esc(d.name)}</div>
@@ -1025,9 +1014,6 @@ const act = {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' }));
     a.download = `plata-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1e3);
   },
-  infomes: () => sheet('Resultado del mes', `<p style="margin:0">Es lo que <b>entró menos lo que gastaste este mes</b>. “Por día restante” divide ese resultado por los días que quedan hasta fin de mes.</p>
-    <h3>Qué incluye</h3><p class="muted" style="margin:0">Los ingresos y gastos que anotaste este mes, de cualquier cuenta.</p>
-    <h3>Qué no incluye</h3><p class="muted" style="margin:0">Tus saldos en cuentas, lo que tenés que pagar (cuotas, deudas, préstamos), lo que te deben, ni gastos que todavía no cargaste. <b>No es plata disponible</b>: para saber cuánto tenés hoy mirá “Balance general”.</p>`),
   saveerrx: () => { $('#saveerr').hidden = true; },
   accounts: sheetAccounts,
   acc: el => sheetAcc(el.dataset.n),

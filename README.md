@@ -27,7 +27,7 @@ Plata no tiene servidor ni cuentas: tus datos se guardan en este dispositivo (In
 - **Gasto propio**: si pagás una cena de $ 60.000 para tres, sale $ 60.000 de la cuenta, tu gasto del mes es tu parte ($ 20.000) y $ 40.000 quedan **por recuperar**. Al cobrar sube la cuenta y baja lo pendiente; no se inventa un ingreso ni se borra tu gasto.
 - **Tarjeta de crédito**: la compra es el gasto; pagar el resumen es un traspaso de una cuenta a la tarjeta (Mover plata), no otro gasto. Cada deuda con cuotas indica si sus cuotas cuentan como gasto (las deudas cargadas antes de v58 siguen contándolo, para no cambiar el historial).
 - **Repartos y cuotas**: todo se calcula en centavos enteros y el total se conserva. Los centavos sobrantes van a quien figura primero (cuotas: a las primeras cuotas). Mismo dato, mismo reparto.
-- **"Resultado del mes por día restante"** no es plata disponible: es ingresos − gastos del mes dividido los días que faltan, sin contar saldos ni compromisos.
+- **"Te quedan $ X por día"** (Inicio) es ingresos − gastos del mes dividido los días que faltan: no cuenta saldos ni compromisos. Ingresos y Gastos del mes se reinician solos cada mes.
 
 ## Datos, migración y copias
 
