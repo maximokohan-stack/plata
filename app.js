@@ -107,45 +107,65 @@ const idb = () => new Promise((res, rej) => {
   r.onupgradeneeded = () => r.result.createObjectStore('kv');
   r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
 });
-// deja el estado con la forma que la app espera (listas siempre presentes, sin registros dañados)
-function normState(v) {
-  const arr = x => Array.isArray(x) ? x : [], num = x => typeof x === 'number' && isFinite(x);
-  // los ids van dentro de atributos HTML (data-id="…"): un backup ajeno no puede meter ahí otra cosa que letras, números y guiones
-  const sid = o => ({ ...o, id: String(o.id ?? '').replace(/[^\w-]/g, '') || uid() });
-  const strs = x => arr(x).filter(m => typeof m === 'string');
-  return {
-    ...v,
-    tx: arr(v.tx).filter(t => t && typeof t.date === 'string' && num(t.amount)).map(sid),
-    debts: arr(v.debts).filter(d => d && num(d.cuota) && d.cuotas > 0).map(sid),
-    loans: arr(v.loans).filter(l => l && num(l.amount)).map(l => ({ ...sid(l), person: String(l.person ?? '').trim() || 'Sin nombre', payments: arr(l.payments).filter(Boolean).map(sid) })),
-    moves: arr(v.moves).filter(m => m && num(m.amount) && m.from && m.to).map(sid),
-    adjusts: arr(v.adjusts).filter(a => a && num(a.amount) && typeof a.acc === 'string' && typeof a.date === 'string').map(sid),   // ajustes de saldo de una cuenta
-    customMethods: arr(v.customMethods).filter(x => typeof x === 'string' && x.trim()),
-    accInit: v.accInit && typeof v.accInit === 'object' ? v.accInit : {},
-    groups: arr(v.groups).filter(g => g && Array.isArray(g.members)).map(g => ({ ...sid(g), members: strs(g.members), hidden: strs(g.hidden), expenses: arr(g.expenses).filter(e => e && num(e.amount) && Array.isArray(e.split)).map(sid), payments: arr(g.payments).filter(Boolean).map(sid) }))
-  };
+// deja el estado con la forma que la app espera; la lógica vive en core.js (se prueba con `node --test`)
+const normState = v => Core.normalize(v, uid);
+const idbGet = (db, key) => new Promise((res, rej) => { const q = db.transaction('kv').objectStore('kv').get(key); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+const idbPut = (db, key, val) => new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(val, key); t.oncomplete = res; t.onerror = () => rej(t.error); t.onabort = () => rej(t.error || new Error('guardado abortado')); });
+let lastSavedJSON = '{}', savedInReserve = false;
+// Antes de subir el esquema se guarda una copia exacta de lo que había (volver atrás = restaurar esa copia desde Ajustes).
+async function keepPremigration(v) {
+  const rec = { at: new Date().toISOString(), from: Core.versionOf(v), state: v };
+  try { await idbPut(await idb(), 'premigration', rec); try { localStorage.setItem('plata.premig', '1'); } catch { } return true; } catch { }
+  try { localStorage.setItem('plata.premigration', JSON.stringify(rec)); localStorage.setItem('plata.premig', '1'); return true; } catch { }
+  return false;
 }
 async function load() {
-  try {
-    const db = await idb();
-    const v = await new Promise((res, rej) => { const q = db.transaction('kv').objectStore('kv').get(KEY); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
-    if (v) S = normState({ ...S, ...v });
-  } catch { try { const v = JSON.parse(localStorage.getItem(KEY) || 'null'); if (v) S = normState({ ...S, ...v }); } catch { } }
+  let a = null, b = null;
+  try { a = await idbGet(await idb(), KEY); } catch { }
+  try { b = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { }
+  const v = Core.chooseNewest(a, b);
+  if (v) {
+    const m = Core.migrate({ ...S, ...v }, uid);
+    // si no se pudo guardar la copia previa, no se sube la versión: se usan los mismos datos normalizados y se reintenta en la próxima apertura
+    S = !m.migrated || await keepPremigration(v) ? m.state : Core.normalize({ ...S, ...v }, uid);
+    savedInReserve = v === b && !!b;
+  }
+  lastSavedJSON = JSON.stringify(S);
+  if (v && Core.needsMigration(v) && S.schemaVersion === Core.SCHEMA) save().catch(() => { });   // deja guardado el formato nuevo (la copia previa ya está a salvo)
 }
-async function save() {
-  try {
-    const db = await idb();
-    await new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(JSON.parse(JSON.stringify(S)), KEY); t.oncomplete = res; t.onerror = () => rej(t.error); });
-  } catch { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { } }
+// Guarda en el almacén principal y, si falla, en la reserva. Si fallan los dos, TIRA el error: nada finge un guardado.
+let saveChain = Promise.resolve();
+function save() {
+  const run = async () => {
+    const payload = JSON.parse(JSON.stringify(S)); payload.schemaVersion = Core.SCHEMA; payload.savedAt = new Date().toISOString();
+    const how = await Core.persist(async () => { await idbPut(await idb(), KEY, payload); }, async () => { localStorage.setItem(KEY, JSON.stringify(payload)); });
+    if (how === 'principal') { try { localStorage.removeItem(KEY); } catch { } savedInReserve = false; } else savedInReserve = true;   // la reserva vieja no debe pisar a la nueva
+    lastSavedJSON = JSON.stringify(S);
+    return how;
+  };
+  const p = saveChain.then(run, run); saveChain = p.catch(() => { }); return p;
 }
-const commit = () => { save(); render(); };
+function showSaveError() {
+  const t = $('#toast'); if (t) t.hidden = true;
+  const el = $('#saveerr'); if (!el) return;
+  el.hidden = false;
+  el.innerHTML = `<div><b>No se pudo guardar en este dispositivo.</b> Se deshizo el último cambio para que lo que ves coincida con lo guardado. Si estabas cargando algo, sigue en pantalla para que lo intentes de nuevo. Si se repite, puede faltar espacio o estar en navegación privada: exportá un backup.</div><div class="btns" style="margin:8px 0 0"><button class="btn sm" data-act="export">Exportar backup</button><button class="btn ghost sm" data-act="saveerrx">Cerrar</button></div>`;
+}
+function restoreLastSaved() { try { S = normState(JSON.parse(lastSavedJSON)); } catch { } render(); }
+// aplica el cambio en pantalla y lo guarda; si el guardado falla, vuelve al último estado guardado y lo avisa (devuelve una promesa true/false)
+const commit = () => {
+  render();
+  const p = save().then(() => true, () => { restoreLastSaved(); showSaveError(); return false; });
+  commit.last = p; return p;
+};
+const saveSoft = () => save().catch(() => { showSaveError(); });
 
 // ---------- cálculos ----------
 // siempre redondeado a centavos: sumar 33,33 + 33,33 + 33,34 en coma flotante dejaba restos de 1e-14 y la deuda figuraba como pendiente
-const c2 = x => Math.round(x * 100) / 100;
-const loanPaid = l => c2(sum(l.payments || [], p => p.amount));
-const loanLeft = l => Math.max(0, c2(l.amount - loanPaid(l)));
-const debtLeft = d => Math.max(0, c2((d.cuotas - d.cuotasPagas) * d.cuota));
+const c2 = x => Core.round2(x);
+const loanPaid = l => Core.fromCents(Core.loanPaidC(l));
+const loanLeft = l => Core.fromCents(Core.loanLeftC(l));
+const debtLeft = d => Core.fromCents(Core.debtLeftC(d));
 const daysUntil = day => {
   const n = new Date(), y = n.getFullYear(), m = n.getMonth();
   let t = new Date(y, m, Math.min(day, new Date(y, m + 1, 0).getDate()));
@@ -167,50 +187,13 @@ function peopleList() {
 // integrantes activos (los "ocultos" siguen en el historial y en las cuentas, pero no aparecen para gastos nuevos)
 const gActive = g => g.members.filter(m => !(g.hidden || []).includes(m));
 const gMembersFor = (g, e) => g.members.filter(m => !(g.hidden || []).includes(m) || (e && (e.paidBy === m || (e.split || []).includes(m) || (e.items || []).some(i => (i.split || []).includes(m)))));
-// lo que le toca a cada uno de un gasto: partes iguales, por montos / porcentajes (`shares`) o producto por producto (`items`)
-function expenseShares(e) {
-  const out = {}, add = (n, v) => out[n] = (out[n] || 0) + v;
-  if (e.shares) Object.entries(e.shares).forEach(([n, v]) => add(n, Number(v) || 0));
-  else if (e.items?.length) e.items.forEach(it => { if (it.split?.length) it.split.forEach(n => add(n, it.amount / it.split.length)); });
-  else e.split.forEach(n => add(n, e.amount / e.split.length));
-  return out;
-}
-function groupBalances(g) {
-  const bal = Object.fromEntries(g.members.map(m => [m, 0]));
-  for (const e of g.expenses) {
-    bal[e.paidBy] = (bal[e.paidBy] || 0) + e.amount;
-    for (const [m, v] of Object.entries(expenseShares(e))) bal[m] = (bal[m] || 0) - v;
-  }
-  // pagos ya hechos entre integrantes: quien paga reduce lo que debe; quien cobra reduce lo que le deben
-  for (const p of g.payments || []) { bal[p.from] = (bal[p.from] || 0) + p.amount; bal[p.to] = (bal[p.to] || 0) - p.amount; }
-  return bal;
-}
-// consumo y aporte de cada integrante
-function groupConsumption(g) {
-  const c = Object.fromEntries(g.members.map(m => [m, { consumed: 0, paid: 0 }]));
-  for (const e of g.expenses) {
-    (c[e.paidBy] ||= { consumed: 0, paid: 0 }).paid += e.amount;
-    for (const [m, v] of Object.entries(expenseShares(e))) (c[m] ||= { consumed: 0, paid: 0 }).consumed += v;
-  }
-  return c;
-}
-// Quién le paga a quién para quedar a mano. Se trabaja en centavos enteros: si no, al pagar los importes redondeados
-// quedaban restos de fracciones de centavo y aparecía una deuda "fantasma" de $ 0,01.
-function settle(bal) {
-  const c = [], d = [];
-  // redondeo simétrico (mismo para deudores y acreedores) y con margen contra el ruido de coma flotante: x,xx5 siempre baja
-  for (const [n, v] of Object.entries(bal)) { const k = Math.round(Math.abs(v) * 100 - 1e-7); if (k > 0) (v > 0 ? c : d).push([n, k]); }
-  c.sort((a, b) => b[1] - a[1]); d.sort((a, b) => b[1] - a[1]);
-  const out = []; let i = 0, j = 0;
-  while (i < c.length && j < d.length) {
-    const x = Math.min(c[i][1], d[j][1]);
-    out.push({ from: d[j][0], to: c[i][0], amount: x / 100 });
-    c[i][1] -= x; d[j][1] -= x;
-    if (c[i][1] === 0) i++;
-    if (d[j][1] === 0) j++;
-  }
-  return out;
-}
+// Repartos y saldos de grupos: se calculan en centavos (core.js) y acá se devuelven en pesos. El total siempre se conserva.
+const fromC = o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Core.fromCents(v)]));
+const expenseShares = e => fromC(Core.expenseSharesC(e));
+const groupBalances = g => fromC(Core.groupBalancesC(g));
+const groupConsumption = g => Object.fromEntries(Object.entries(Core.groupConsumptionC(g)).map(([k, v]) => [k, { consumed: Core.fromCents(v.consumed), paid: Core.fromCents(v.paid) }]));
+// quién le paga a quién para quedar a mano (bal en pesos)
+const settle = bal => Core.settleC(Object.fromEntries(Object.entries(bal).map(([k, v]) => [k, Core.toCents(v)])));
 
 // ---------- vistas ----------
 let view = 'home', month = today().slice(0, 7), openGroup = null;
@@ -226,17 +209,16 @@ const empty = (t, s) => `<div class="empty"><b>${t}</b>${s}</div>`;
 
 function vHome() {
   const cur = today().slice(0, 7), tx = S.tx.filter(t => t.date.startsWith(cur));
-  const inc = sum(S.tx.filter(t => t.type === 'ingreso'), t => t.amount);
-  const exp = sum(S.tx.filter(t => t.type === 'gasto'), t => t.amount);
   const owedMe = sum(S.loans.filter(l => l.dir === 'me-deben'), loanLeft);
   const iOwe = sum(S.loans.filter(l => l.dir === 'debo'), loanLeft) + sum(S.debts, debtLeft);
-  const due = S.debts.filter(d => d.cuotasPagas < d.cuotas && d.dueDay).map(d => ({ d, n: daysUntil(d.dueDay) })).filter(x => x.n <= 10).sort((a, b) => a.n - b.n);
-  // Balance general = lo que realmente tenés: ingresos − gastos + el saldo inicial que cargaste en cada cuenta
-  const initSum = sum(Object.values(S.accInit || {}), v => Number(v) || 0), adjSum = sum(S.adjusts || [], a => Number(a.amount) || 0), balance = inc - exp + initSum + adjSum;
+  const due = S.debts.filter(d => d.cuotasPagas < d.cuotas && (d.firstDue || d.dueDay)).map(d => ({ d, n: nextDueDays(d) })).filter(x => x.n <= 10).sort((a, b) => a.n - b.n);
+  // Balance general = plata que hay hoy en tus cuentas: saldos iniciales + todo lo que entró o salió de ellas (core.js)
+  const balance = Core.fromCents(Core.totalCashC(S));
   // resumen del mes: cuánto cambió el balance este mes y, si sobró plata, cuánto queda por día hasta fin de mes
   const mInc = sum(tx.filter(t => t.type === 'ingreso'), t => t.amount), mExp = sum(tx.filter(t => t.type === 'gasto'), t => t.amount), mNet = mInc - mExp;
   const nowD = new Date(), daysLeft = new Date(nowD.getFullYear(), nowD.getMonth() + 1, 0).getDate() - nowD.getDate() + 1;
-  const insight = S.tx.length ? `<div class="insight"><b class="${mNet < 0 ? 'neg' : 'pos'}">${mNet < 0 ? '▼' : '▲'} ${money(Math.abs(mNet))}</b> este mes${mNet > 0 && daysLeft > 0 ? ` · te quedan <b>${money(Math.round(mNet / daysLeft))}</b> por día` : ''}</div>` : '';
+  const perDay = mNet > 0 && daysLeft > 0 ? Math.round(mNet / daysLeft) : 0;
+  const insight = S.tx.length ? `<div class="insight"><b class="${mNet < 0 ? 'neg' : 'pos'}">${mNet < 0 ? '▼' : '▲'} ${money(Math.abs(mNet))}</b> resultado del mes${perDay ? ` · <b>${money(perDay)}</b> por día restante` : ''} <button class="info" data-act="infomes" aria-label="Qué significa esto">ⓘ</button></div>` : '';
   // desglose por cuenta (se abre con "Ver detalle")
   const accs = allMethods().filter(accShown).map(n => ({ n, b: accBalance(n) })).sort((x, y) => Math.abs(y.b) - Math.abs(x.b));
   const loose = sum(S.tx.filter(t => !t.method), t => (t.type === 'ingreso' ? 1 : -1) * t.amount), posTot = sum(accs, a => Math.max(0, a.b));
@@ -251,10 +233,11 @@ function vHome() {
     ${drows ? `<button class="det" data-act="hdet" aria-expanded="${homeDet}"><i></i><span>${homeDet ? 'Detalle ▴' : 'Ver detalle ▾'}</span><i></i></button><div class="drows"${homeDet ? '' : ' hidden'}>${drows}</div>` : ''}
     <div class="pair"><div><span class="label">Ingresos del mes</span><b class="pos">${money(mInc)}</b></div><div><span class="label">Gastos del mes</span><b class="neg">${money(mExp)}</b></div></div>
   </div>
+  ${typeof backupNudge === 'function' ? backupNudge() : ''}
   ${owedMe || iOwe ? `<button class="card" data-act="tab" data-v="debts" style="text-align:left;width:100%"><div class="row"><div><div class="label">Me deben</div><div class="stat ${owedMe ? 'pos' : 'muted'}${statCls(money(Math.max(owedMe, iOwe)))}">${money(owedMe)}</div></div><div style="text-align:right"><div class="label">Debo</div><div class="stat ${iOwe ? 'neg' : 'muted'}${statCls(money(Math.max(owedMe, iOwe)))}">${money(iOwe)}</div></div></div></button>` : ''}
   ${due.length ? `<h3>Vencimientos cercanos</h3><div class="list">${due.map(({ d, n }) => `
     <button class="item" data-act="debt" data-id="${d.id}"><div class="dot">${stamp(d.name)}</div><div class="grow"><div class="t">${esc(d.name)}</div>
-    <div class="s ${n <= 3 ? 'warn' : ''}">${n === 0 ? 'Vence hoy' : n === 1 ? 'Vence mañana' : 'Vence en ' + n + ' días'}</div></div><div class="amt neg">${money(d.cuota)}</div></button>`).join('')}</div>` : ''}
+    <div class="s ${n <= 3 ? 'warn' : ''}">${n < 0 ? 'Venció hace ' + (-n) + (n === -1 ? ' día' : ' días') : n === 0 ? 'Vence hoy' : n === 1 ? 'Vence mañana' : 'Vence en ' + n + ' días'}</div></div><div class="amt neg">${money(cuotaAmt(d))}</div></button>`).join('')}</div>` : ''}
   <div id="bk">${breakdownCard(tx, monthLabel(cur))}</div>
   <h3>Últimos movimientos</h3><div class="card" style="padding:6px 14px">${txList(S.tx.slice().sort(byDate).slice(0, 5))}${S.tx.length ? `<div class="btns" style="margin:4px 0 8px"><button class="btn ghost block" data-act="tab" data-v="mov">Ver por mes</button></div>` : ''}</div>`;
 }
@@ -322,7 +305,7 @@ const byDate = (a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id
 const monthNav = () => `<div class="month"><button data-act="mprev" aria-label="Mes anterior">‹</button><b>${monthLabel(month)}</b><button data-act="mnext" aria-label="Mes siguiente">›</button></div>`;
 const txItem = t => `
   <button class="item" data-act="tx" data-id="${t.id}">${catDot(t.cat)}
-  <div class="grow"><div class="t">${esc(t.note || t.cat)}</div><div class="s">${esc([t.note ? t.cat : '', t.method].filter(Boolean).join(' · ') || ' ')}</div></div>
+  <div class="grow"><div class="t">${esc(t.note || t.cat)}</div><div class="s">${esc([t.note ? t.cat : '', t.method].filter(Boolean).join(' · ') || ' ')}${t.paid != null && t.paid !== t.amount ? `<br>${t.paid > 0 ? 'Pagaste ' + money(t.paid) : 'Lo pagó otra persona'} · tu parte ${money(t.amount)}` : ''}${t.gref ? ' · de un grupo' : ''}</div></div>
   <div class="amt ${t.type === 'ingreso' ? 'pos' : 'neg'}">${t.type === 'ingreso' ? '+' : '−'}${money(t.amount)}</div></button>`;
 // un traspaso entre cuentas no es ingreso ni gasto: va con el símbolo ⇄ y sin color
 const moveItem = t => t.adj ? `
@@ -409,17 +392,17 @@ function vDebts() {
   if (!S.debts.length) return `<div class="list">${empty('Sin deudas cargadas', 'Tarjeta, cuotas, préstamos: cargalos con el botón de abajo y seguí cuánto falta.')}</div>`;
   const tot = sum(S.debts, debtLeft);
   return `<div class="card"><div class="label">Total pendiente</div><div class="big neg">${money(tot)}</div>
-    <div class="muted">Cuotas del mes: <b class="neg">${money(sum(S.debts.filter(d => d.cuotasPagas < d.cuotas), d => d.cuota))}</b></div></div>
+    <div class="muted">Próximas cuotas: <b class="neg">${money(sum(S.debts.filter(d => d.cuotasPagas < d.cuotas), d => cuotaAmt(d)))}</b></div></div>
   <div class="list">${S.debts.map(d => {
     const pct = Math.round(d.cuotasPagas / d.cuotas * 100), fin = d.cuotasPagas >= d.cuotas;
     return `<button class="item" data-act="debt" data-id="${d.id}" style="display:block"><div class="row"><div class="t">${esc(d.name)}</div><div class="amt ${fin ? '' : 'neg'}">${fin ? '<span class="pill pos">Pagada</span>' : money(debtLeft(d))}</div></div>
-      <div class="s">${d.cuotasPagas}/${d.cuotas} cuotas de ${money(d.cuota)}${d.dueDay && !fin ? ' · vence el ' + d.dueDay : ''}</div><div class="bar"><i style="width:${pct}%"></i></div></button>`;
+      <div class="s">${d.cuotasPagas}/${d.cuotas} cuotas${fin ? '' : ' · próxima ' + money(cuotaAmt(d))}${!fin && Core.cuotaDueDate(d, d.cuotasPagas) ? ' · vence ' + dayLabel(Core.cuotaDueDate(d, d.cuotasPagas)) + (nextDueDays(d) < 0 ? ' · ⚠ vencida' : '') : d.dueDay && !fin ? ' · vence el ' + d.dueDay : ''}</div><div class="bar"><i style="width:${pct}%"></i></div></button>`;
   }).join('')}</div>`;
 }
 
 function vPeople() {
   const ppl = peopleList();
-  if (!ppl.length) return `<div class="list">${empty('Nadie te debe (ni le debés a nadie)', 'Prestaste plata o te prestaron: cargalo con el botón de abajo y mandá recordatorios por WhatsApp.')}</div>`;
+  if (!ppl.length) return `<div class="list">${empty('Todavía no cargaste préstamos ni cobros', 'Si prestaste plata o te prestaron, cargalo con el botón de abajo y mandá recordatorios por WhatsApp.')}</div>`;
   const row = p => `<button class="item" data-act="person" data-k="${esc(p.key)}"><div class="dot">${esc(p.name[0].toUpperCase())}</div>
     <div class="grow"><div class="t">${esc(p.name)}</div><div class="s">${p.net > 0 ? 'te debe' : p.net < 0 ? 'le debés' : 'en paz'}</div></div>
     <div class="amt ${p.net > 0 ? 'pos' : p.net < 0 ? 'neg' : 'muted'}">${money(Math.abs(p.net))}</div></button>`;
@@ -522,15 +505,10 @@ function ensureMethod(raw) {
   if (!m) { m = raw[0].toUpperCase() + raw.slice(1); (S.customMethods ||= []).push(m); }
   return m;
 }
-// saldo de una cuenta = saldo inicial + ingresos − gastos + traspasos que entraron − traspasos que salieron + ajustes de saldo
-function accBalance(name, upTo) {
-  const k = norm(name), ok = d => !upTo || d <= upTo; let b = Number((S.accInit || {})[name]) || 0;
-  for (const t of S.tx) if (norm(t.method) === k && ok(t.date)) b += t.type === 'ingreso' ? t.amount : -t.amount;
-  for (const m of S.moves || []) if (ok(m.date)) { if (norm(m.from) === k) b -= m.amount; if (norm(m.to) === k) b += m.amount; }
-  for (const a of S.adjusts || []) if (norm(a.acc) === k && ok(a.date)) b += a.amount;
-  return Math.round(b * 100) / 100;
-}
-const accUsed = n => S.tx.some(t => norm(t.method) === norm(n)) || (S.adjusts || []).some(a => norm(a.acc) === norm(n)) || (S.moves || []).some(m => norm(m.from) === norm(n) || norm(m.to) === norm(n)) || !!Number((S.accInit || {})[n]);
+// saldo de una cuenta = saldo inicial + ingresos − gastos (lo que salió de la cuenta, que puede ser más que tu parte) ± traspasos ± ajustes
+// ± préstamos, cobros y pagos que movieron esa cuenta (core.js)
+const accBalance = (name, upTo) => Core.fromCents(Core.accBalanceC(S, name, upTo));
+const accUsed = n => Core.cashFlows(S).some(x => x.acc && norm(x.acc) === norm(n)) || !!Number((S.accInit || {})[n]);
 function comboRender(input, showAll) {
   const acc = input.dataset.list === 'acc';
   const q = norm(input.value), cats = acc ? allMethods() : allCats(input.form.type.value), exact = cats.some(c => norm(c) === q);
@@ -546,10 +524,17 @@ function formTx(t, presetType) {
   sheet(t ? 'Editar movimiento' : 'Nuevo movimiento', `<form data-form="tx" data-id="${t?.id || ''}">
     ${t ? '' : `<button type="button" class="link ai-only" data-act="importmov" style="justify-self:start;text-align:left">¿Se te olvidaron varios? Importalos desde una captura o resumen</button>`}
     <div class="seg"><label><input type="radio" name="type" value="gasto" ${type === 'gasto' ? 'checked' : ''}><span>Gasto</span></label><label><input type="radio" name="type" value="ingreso" ${type === 'ingreso' ? 'checked' : ''}><span>Ingreso</span></label>${t ? '' : '<label><input type="radio" name="type" value="mover"><span>Mover</span></label>'}</div>
-    ${field('Monto', MI(`<input class="money" name="amount" type="text" inputmode="decimal" placeholder="0" value="${t ? fmtIn(t.amount) : ''}" required autofocus>`, true))}
+    ${field('Monto', MI(`<input class="money" name="amount" type="text" inputmode="decimal" placeholder="0" value="${t ? fmtIn(t.paid ?? t.amount) : ''}" ${t?.paid != null && t.paid !== t.amount ? 'readonly' : ''} required autofocus>`, true))}
     <label>Categoría<div class="combo"><input type="text" name="cat" autocomplete="off" maxlength="30" placeholder="Elegí o escribí una nueva" role="combobox" aria-expanded="false" required>
       <button type="button" class="combo-btn" data-act="combotoggle" aria-label="Ver categorías">▾</button><div class="combo-list" hidden></div></div></label>
     ${accPicker('method', t?.method || S.lastMethod || 'Efectivo', type === 'gasto' ? 'Pagué con' : 'Me ingresó por', 'method-label')}
+    ${t?.paid != null && t.paid !== t.amount ? `<div class="effect" role="note"><span class="muted">Pagaste ${money(t.paid)}</span><b>tu parte ${money(t.amount)}</b></div><p class="muted" style="margin:0;font-size:13.5px">Los ${money(t.paid - t.amount)} restantes están en Deudas ▸ Personas como “por recuperar”. Para cambiar el monto o el reparto, eliminá este gasto y volvé a cargarlo.</p>` : ''}
+    ${!t ? `<div id="shbox"><label class="shchk" style="display:flex;flex-direction:row;gap:10px;align-items:center"><input type="checkbox" name="shon"><span>Lo dividí con otras personas</span></label>
+      <div id="shfields" hidden style="display:grid;gap:12px;margin-top:10px">
+        <p class="muted" style="margin:0;font-size:13.5px">En “Monto” poné <b>lo que pagaste en total</b>. Tu parte cuenta como gasto y el resto queda por recuperar.</p>
+        ${field('Personas en total (contándote)', `<input type="number" name="shn" min="2" max="30" value="2">`)}
+        ${field('Nombres de las otras personas (separados por coma)', `<input type="text" name="shnames" placeholder="Ana, Pedro" autocomplete="off">`)}
+        <div class="effect" id="sh-eff" role="status" aria-live="polite"></div></div></div>` : ''}
     ${field('Nota (opcional)', `<input type="text" name="note" value="${esc(t?.note || '')}" placeholder="Ej: súper, nafta…">`)}
     ${field('Fecha', `<input type="date" name="date" value="${t?.date || today()}" required>`)}
     <button class="btn block">Guardar</button>
@@ -557,10 +542,35 @@ function formTx(t, presetType) {
   </form>`);
   const f = $('form[data-form=tx]');
   const fill = () => { const ty = f.type.value; f.cat.value = t && t.type === ty ? t.cat : allCats(ty)[0]; f.querySelectorAll('.combo-list').forEach(l => l.hidden = true); $('#method-label').textContent = ty === 'gasto' ? 'Pagué con' : 'Me ingresó por'; accEffects(f); };
-  f.querySelectorAll('[name=type]').forEach(r => r.onchange = () => r.value === 'mover' ? formMove() : fill()); fill();
+  f.querySelectorAll('[name=type]').forEach(r => r.onchange = () => { if (r.value === 'mover') formMove(); else { fill(); shDraw(f); } }); fill();
+  if (f.shon) f.shon.onchange = () => { $('#shfields').hidden = !f.shon.checked; shDraw(f); };
 }
+// vista previa del gasto dividido: lo que pagaste, tu parte y lo que queda por recuperar (en centavos; el centavo sobrante es tuyo)
+function shParse(f) {
+  const n = parseInt(f.shn.value), names = f.shnames.value.split(',').map(x => x.trim()).filter(Boolean), paidC = Core.toCents(parseAmount(f.amount.value) || 0);
+  return { n, names, paidC, parts: n >= 2 ? Core.splitCents(paidC, n) : [] };
+}
+function shDraw(f) {
+  const box = $('#sh-eff'); if (!box || !f.shon) return;
+  if (!f.shon.checked || f.type.value !== 'gasto') { if (box) box.innerHTML = ''; return; }
+  const sh = shParse(f);
+  box.innerHTML = sh.paidC > 0 && sh.n >= 2 ? `<span class="muted">Pagás ${money(sh.paidC / 100)} · tu parte ${money(sh.parts[0] / 100)}</span><b>${money((sh.paidC - sh.parts[0]) / 100)} por recuperar</b>` : '<span class="muted">Poné el monto y las personas.</span>';
+}
+document.addEventListener('input', e => { const f = e.target.closest?.('form[data-form=tx]'); if (f?.shon) shDraw(f); });
 // Mover plata: de una cuenta a otra (retirar del cajero, cargar Mercado Pago, pagar la tarjeta). No es gasto ni ingreso.
 // lista de cuentas con saldo: círculo de selección, nombre, saldo y, a la derecha, cómo queda la cuenta al guardar; "Nueva cuenta" permite escribir una que no está
+// lista desplegable de cuentas con saldo, con una primera opción "sin cuenta" (para operaciones que no mueven plata)
+const accSelect = (name, sel, noneLabel, label = 'Cuenta', note = true) => `<label>${label}<select name="${name}"><option value="">${esc(noneLabel)}</option>${allMethods().filter(n => accShown(n) || norm(n) === norm(sel)).map(n => `<option value="${esc(n)}" ${norm(n) === norm(sel) ? 'selected' : ''}>${esc(n)} · saldo ${money(accBalance(n))}</option>`).join('')}</select></label>${note ? '<div class="effect" id="acc-note" role="status" aria-live="polite"></div>' : ''}`;
+// efecto sobre la cuenta elegida: cómo queda su saldo (o "no toca ningún saldo")
+function accNoteDraw(f) {
+  const box = $('#acc-note'); if (!box || !f.acc) return;
+  const amt = parseAmount(f.amount?.value) || 0, sign = f.dataset.form === 'loan' ? (f.dir.value === 'me-deben' ? -1 : 1) : +(f.dataset.sign || -1);
+  if (!f.acc.value) { box.innerHTML = '<span class="muted">No toca ningún saldo.</span>'; return; }
+  if (!(amt > 0)) { box.innerHTML = `<span class="muted">${esc(f.acc.value)}</span><b>${sign > 0 ? 'sube' : 'baja'}</b>`; return; }
+  const b = accBalance(f.acc.value); box.innerHTML = `<span class="muted">${esc(f.acc.value)}</span><b>${money(b)} → <span class="${sign > 0 ? 'pos' : 'neg'}">${money(b + sign * amt)}</span></b>`;
+}
+document.addEventListener('input', e => { const f = e.target.closest?.('form[data-form=loan],form[data-form=loanpay],form[data-form=payquota],form[data-form=gpay]'); if (f) accNoteDraw(f); });
+document.addEventListener('change', e => { const f = e.target.closest?.('form[data-form=loan],form[data-form=loanpay],form[data-form=payquota],form[data-form=gpay]'); if (f) accNoteDraw(f); });
 function accPicker(name, sel, label, labelId) {
   const all = allMethods(), top = all.filter(n => accShown(n) || norm(n) === norm(sel)), rest = all.filter(n => !top.includes(n));
   const row = n => { const on = norm(n) === norm(sel); return `<button type="button" class="rc${on ? ' on' : ''}" role="radio" aria-checked="${on}" data-act="accpick" data-f="${name}" data-n="${esc(n)}"><span class="rb"></span><span><b>${esc(n)}</b><small>Saldo ${money(accBalance(n))}</small></span><span class="am"></span></button>`; };
@@ -682,12 +692,16 @@ function formNewAcc() {
     <button class="btn block">Crear cuenta</button></form>`);
 }
 function formDebt(d) {
+  const legacy = d && d.total == null;
   sheet(d ? 'Editar deuda' : 'Nueva deuda', `<form data-form="debt" data-id="${d?.id || ''}">
     ${field('Nombre', `<input type="text" name="name" value="${esc(d?.name || '')}" placeholder="Ej: Visa, préstamo auto" required autofocus>`)}
-    ${field('Monto total', MI(`<input class="money" name="total" type="text" inputmode="decimal" placeholder="0" value="${d ? fmtIn(d.cuota * d.cuotas) : ''}" required>`, true))}
+    ${field('Monto total', MI(`<input class="money" name="total" type="text" inputmode="decimal" placeholder="0" value="${d ? fmtIn(Core.fromCents(Core.debtTotalC(d))) : ''}" required>`, true))}
     <div class="grid2" style="margin:0">${field('Cuotas', `<input type="number" name="cuotas" min="1" value="${d?.cuotas || 1}" required>`)}
     ${field('Ya pagadas', `<input type="number" name="paid" min="0" value="${d?.cuotasPagas || 0}">`)}</div>
-    ${field('Día de vencimiento (opcional)', `<input type="number" name="dueDay" min="1" max="31" value="${d?.dueDay || ''}" placeholder="1–31">`)}
+    ${field('Vencimiento de la primera cuota (opcional)', `<input type="date" name="firstDue" value="${d?.firstDue || ''}">`)}
+    ${field('Día de vencimiento (si no sabés la fecha)', `<input type="number" name="dueDay" min="1" max="31" value="${d?.dueDay || ''}" placeholder="1–31">`)}
+    <label style="display:flex;flex-direction:row;gap:10px;align-items:flex-start"><input type="checkbox" name="asExpense" ${d ? (d.countAsExpense !== false ? 'checked' : '') : ''} style="margin-top:4px;flex:none"><span>Anotar cada cuota como un gasto<small class="muted" style="display:block;font-size:13px;font-weight:400">Tildalo si <b>no</b> anotaste la compra como gasto (por ejemplo, un préstamo). Si ya anotaste la compra con tarjeta, dejalo sin tildar para no contar el gasto dos veces.</small></span></label>
+    ${legacy ? '<p class="muted" style="font-size:13px;margin:0">Esta deuda es de una versión anterior: se respeta el valor de cuota que tenía guardado hasta que guardes cambios.</p>' : ''}
     <button class="btn block">Guardar</button></form>`);
 }
 function formLoan(dir = 'me-deben') {
@@ -696,9 +710,12 @@ function formLoan(dir = 'me-deben') {
     ${field('Persona', `<input type="text" name="person" list="ppl" required autofocus placeholder="Nombre">`)}<datalist id="ppl">${peopleList().map(p => `<option value="${esc(p.name)}">`).join('')}</datalist>
     ${field('Monto', MI(`<input class="money" name="amount" type="text" inputmode="decimal" placeholder="0" required>`, true))}
     ${field('Concepto (opcional)', `<input type="text" name="concept" placeholder="Ej: entradas, cena">`)}
+    ${accSelect('acc', '', 'No: es una deuda de antes (no toca mis saldos)', '¿Se movió plata de una cuenta ahora?')}
+    <p class="muted" style="margin:0;font-size:13.5px">Si prestaste o te prestaron plata hoy, elegí la cuenta: baja o sube su saldo. Si es una deuda que ya existía, dejalo como está.</p>
     ${field('WhatsApp (opcional, con código de país)', `<input type="tel" name="phone" placeholder="5491122334455">`)}
     ${field('Fecha', `<input type="date" name="date" value="${today()}">`)}
     <button class="btn block">Guardar</button></form>`);
+  accNoteDraw($('form[data-form=loan]'));
 }
 function formGroup() {
   sheet('Nuevo grupo', `<form data-form="group">
@@ -721,9 +738,12 @@ function formGexp(g, e) {
     <div id="g-exact" ${mode === 'exact' ? '' : 'hidden'}>${rows('gs-amt', sh, false)}</div>
     <div id="g-pct" ${mode === 'pct' ? '' : 'hidden'}>${rows('gs-pct', pc, true)}</div>
     <div id="g-share" ${mode === 'eq' ? 'hidden' : ''}><div class="gleft" id="g-left" role="status"></div><button type="button" class="btn ghost sm" data-act="gequal">Repartir en partes iguales</button></div>
+    <div id="g-mine"><label style="display:flex;flex-direction:row;gap:10px;align-items:flex-start"><input type="checkbox" name="mine" ${e ? (e.txId ? 'checked' : '') : (g.track ? 'checked' : '')} style="margin-top:4px;flex:none"><span>Sumar mi parte a mis gastos<small class="muted" style="display:block;font-size:13px;font-weight:400">Tu parte cuenta como gasto del mes. Si pagaste vos, la plata sale de la cuenta que elijas; si pagó otra persona, la cuenta baja cuando se lo pagues.</small></span></label>
+      <div id="g-mine-f" style="display:grid;gap:12px;margin-top:10px" ${(e ? e.txId : g.track) ? '' : 'hidden'}>${field('Categoría de mi gasto', `<select name="mcat">${allCats('gasto').map(c => `<option ${c === (g.mcat || 'Otros') ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`)}
+        ${accSelect('macc', (e && e.txId && S.tx.find(t => t.id === e.txId)?.method) || S.lastMethod || '', 'Sin cuenta (no sé de cuál salió)', 'Si pagué yo, salió de', false)}</div></div>
     ${field('Fecha', `<input type="date" name="date" value="${e?.date || today()}">`)}
     <button class="btn block">Guardar</button>
-    ${e ? `<button type="button" class="btn danger block" data-act="gexpdel" data-id="${e.id}">Eliminar</button>` : ''}</form>`);
+    ${e ? `<button type="button" class="btn danger block" data-act="gexpdel\" data-id="${e.id}">Eliminar</button>` : ''}</form>`);
   gDraw();
 }
 // qué falta repartir (en pesos o en %), en vivo
@@ -738,25 +758,68 @@ function gDraw() {
   box.innerHTML = Math.abs(left) < 0.01 ? (target > 0 ? '<span>Todo repartido</span><b class="pos">✓</b>' : '<span>Poné el monto para repartir</span><b></b>') : left > 0 ? `<span>Falta repartir</span><b class="neg">${u(left)}</b>` : `<span>Te pasaste</span><b class="neg">${u(-left)}</b>`;
 }
 document.addEventListener('input', e => { if (e.target.closest?.('form[data-form=gexp]')) gDraw(); });
-document.addEventListener('change', e => { if (e.target.name === 'gmode') gDraw(); });
+document.addEventListener('change', e => { if (e.target.name === 'gmode') gDraw(); if (e.target.name === 'mine') { $('#g-mine-f').hidden = !e.target.checked; } });
 // Registrar el pago de una transferencia sugerida; si cobrás vos, arma el mensaje con tu alias; si pagás vos, guarda el alias de quien cobra
 function sheetPay(g, from, to, amt) {
   const mine = S.me?.alias || '', theirs = g.aliases?.[to] || '';
-  sheet('Registrar pago', `<form data-form="gpay"><input type="hidden" name="from" value="${esc(from)}"><input type="hidden" name="to" value="${esc(to)}">
+  sheet('Registrar pago', `<form data-form="gpay" data-sign="${to === 'Yo' ? 1 : -1}"><input type="hidden" name="from" value="${esc(from)}"><input type="hidden" name="to" value="${esc(to)}">
     <div class="card" style="margin:0"><div class="label">${esc(from)} → ${esc(to)}</div><div class="muted" style="font-size:13px">Faltan ${money(amt)} para saldar esta deuda</div></div>
     ${field('Monto pagado', MI(`<input class="money" name="amount" type="text" inputmode="decimal" value="${fmtIn(amt)}" required>`, true))}
     ${field('Fecha', `<input type="date" name="date" value="${today()}">`)}
+    ${(to === 'Yo' || from === 'Yo') ? accSelect('acc', '', 'No elegir cuenta (no toca mis saldos)', to === 'Yo' ? '¿En qué cuenta te entró?' : '¿De qué cuenta salió?') : ''}
     ${to === 'Yo' ? field('Tu alias o CBU, para cobrar', `<input type="text" name="alias" value="${esc(mine)}" placeholder="mi.alias.mp" autocomplete="off" autocapitalize="off">`) + `<button type="button" class="btn ghost block" data-act="gcobrar">Cobrar por WhatsApp</button>` : ''}
     ${from === 'Yo' ? field(`Alias o CBU de ${esc(to)} (opcional)`, `<input type="text" name="alias" value="${esc(theirs)}" placeholder="su.alias" autocomplete="off" autocapitalize="off">`) + `<button type="button" class="btn ghost block" data-act="gcopy">Copiar alias</button>` : ''}
     <button class="btn block">Registrar pago</button></form>`);
+  accNoteDraw($('form[data-form=gpay]'));
+}
+// monto de la próxima cuota (o de la cuota i); las deudas viejas conservan lo que tenían guardado
+const cuotaAmt = (d, i = d.cuotasPagas) => Core.fromCents(Core.cuotaAmountC(d, i));
+// días hasta el próximo vencimiento: con fecha real si la deuda la tiene; si no, por el día del mes de siempre (negativo = vencida)
+function nextDueDays(d) {
+  const due = Core.cuotaDueDate(d, d.cuotasPagas);
+  return due ? Math.round((new Date(due + 'T12:00') - new Date(today() + 'T12:00')) / 864e5) : (d.dueDay ? daysUntil(d.dueDay) : null);
+}
+function payInstallment(d, { amount, date, acc } = {}) {
+  const i = d.cuotasPagas, amt = Core.round2(amount ?? cuotaAmt(d, i)), p = { id: uid(), n: i, amount: amt, date: date || today(), ...(acc ? { acc } : {}) };
+  if (d.countAsExpense !== false) {   // deudas viejas y las marcadas "cada cuota es un gasto": se anota el gasto, con vínculo estable
+    const t = { id: uid(), type: 'gasto', amount: amt, cat: 'Deudas', note: `${d.name} · cuota ${i + 1}/${d.cuotas}`, date: p.date, debtRef: d.id, payRef: p.id, ...(acc ? { method: acc } : {}) };
+    S.tx.push(t); p.txId = t.id;
+  }
+  (d.payments ||= []).push(p); d.cuotasPagas++;
+  return p;
+}
+// deshace el último pago registrado: el movimiento y la cuota vuelven juntos a como estaban
+function undoInstallment(d) {
+  const p = (d.payments || []).at(-1);
+  if (!p || p.n !== d.cuotasPagas - 1) return false;
+  if (p.txId) S.tx = S.tx.filter(t => t.id !== p.txId);
+  d.payments.pop(); d.cuotasPagas--;
+  return true;
 }
 function sheetDebt(d) {
-  const fin = d.cuotasPagas >= d.cuotas;
+  const fin = d.cuotasPagas >= d.cuotas, now = today(), last = (d.payments || []).at(-1), canUndo = last && last.n === d.cuotasPagas - 1;
+  const chip = st => `<span class="pill ${st === 'pagada' ? 'pos' : st === 'vencida' ? 'neg' : ''}">${st === 'pagada' ? '✓ Pagada' : st === 'vencida' ? '⚠ Vencida' : 'Pendiente'}</span>`;
+  const rows = Array.from({ length: d.cuotas }, (_, i) => {
+    const st = Core.cuotaStatus(d, i, now), due = Core.cuotaDueDate(d, i), pay = (d.payments || []).find(p => p.n === i);
+    return `<div class="item" style="min-height:48px"><div class="grow"><div class="t">Cuota ${i + 1} de ${d.cuotas}</div><div class="s">${due ? 'Vence ' + dayLabel(due) : 'Sin fecha de vencimiento'}${pay ? ` · pagada el ${dayLabel(pay.date)}${pay.acc ? ' con ' + esc(pay.acc) : ''}` : ''}</div></div><div class="amt">${money(cuotaAmt(d, i))}</div>${chip(st)}</div>`;
+  }).join('');
   sheet(d.name, `<div class="card"><div class="label">Falta pagar</div><div class="big neg">${money(debtLeft(d))}</div>
-    <div class="muted">${d.cuotasPagas}/${d.cuotas} cuotas de ${money(d.cuota)}</div><div class="bar"><i style="width:${Math.round(d.cuotasPagas / d.cuotas * 100)}%"></i></div></div>
-    <div class="btns">${fin ? '' : `<button class="btn" data-act="payquota" data-id="${d.id}">Pagar cuota (${money(d.cuota)})</button>`}
+    <div class="muted">${d.cuotasPagas}/${d.cuotas} cuotas${d.total != null ? ' · total ' + money(d.total) : ''}</div><div class="bar"><i style="width:${Math.round(d.cuotasPagas / d.cuotas * 100)}%"></i></div></div>
+    <div class="btns">${fin ? '' : `<button class="btn" data-act="payquota" data-id="${d.id}">Pagar cuota ${d.cuotasPagas + 1} (${money(cuotaAmt(d))})</button>`}
+    ${canUndo ? `<button class="btn ghost" data-act="undoquota" data-id="${d.id}">Deshacer el último pago</button>` : ''}
     <button class="btn ghost" data-act="debtedit" data-id="${d.id}">Editar</button><button class="btn danger" data-act="debtdel" data-id="${d.id}">Eliminar</button></div>
-    ${fin ? '' : '<p class="muted" style="font-size:13px">Al pagar una cuota se suma también como gasto en “Deudas”.</p>'}`);
+    <p class="muted" style="font-size:13px;margin:0">${d.countAsExpense === false ? 'Cada cuota que pagues <b>no</b> se anota como gasto (la compra ya la contaste). Sí baja la cuenta que elijas y lo que falta pagar.' : 'Cada cuota que pagues se anota también como gasto en “Deudas”.'}${d.cuotasPagas > (d.payments || []).length ? ' Las cuotas pagadas antes de esta versión no tienen un movimiento vinculado: no se pueden deshacer desde acá.' : ''}</p>
+    <h3>Cuotas</h3><div class="list">${rows}</div>`);
+}
+function formPayQuota(d) {
+  const i = d.cuotasPagas;
+  sheet(`Pagar cuota ${i + 1} de ${d.cuotas}`, `<form data-form="payquota" data-id="${d.id}" data-sign="-1">
+    ${field(`Monto (cuota de ${esc(d.name)})`, MI(`<input class="money" name="amount" type="text" inputmode="decimal" value="${fmtIn(cuotaAmt(d, i))}" required autofocus>`, true))}
+    ${field('Fecha de pago', `<input type="date" name="date" value="${today()}">`)}
+    ${accSelect('acc', S.lastMethod || '', 'No elegir cuenta', 'Pagué desde')}
+    <p class="muted" style="margin:0;font-size:13.5px">${d.countAsExpense === false ? 'No se anota como gasto: ya lo contaste cuando compraste. Solo baja la cuenta y lo que falta pagar.' : 'Se anota también como gasto en “Deudas”.'}</p>
+    <button class="btn block">Registrar pago</button></form>`);
+  accNoteDraw($('form[data-form=payquota]'));
 }
 function sheetPerson(k) {
   const loans = S.loans.filter(l => personKey(l) === k);
@@ -764,7 +827,8 @@ function sheetPerson(k) {
   const p = peopleList().find(x => x.key === k), name = personName(loans[0]);
   const lines = loans.slice().sort((a, b) => b.date.localeCompare(a.date)).map(l => `
     <div class="item" style="display:block"><div class="row"><div class="t">${esc(l.concept || (l.dir === 'me-deben' ? 'Préstamo' : 'Deuda'))}</div><div class="amt ${l.dir === 'me-deben' ? 'pos' : 'neg'}">${money(loanLeft(l))}</div></div>
-    <div class="s">${l.dir === 'me-deben' ? 'Te debe' : 'Le debés'} · ${dayLabel(l.date)} · total ${money(l.amount)}${(l.payments || []).length ? ' · pagado ' + money(loanPaid(l)) : ''}</div>
+    <div class="s">${l.dir === 'me-deben' ? 'Te debe' : 'Le debés'} · ${dayLabel(l.date)} · total ${money(l.amount)}${(l.payments || []).length ? ' · pagado ' + money(loanPaid(l)) : ''}${l.acc ? ' · movió ' + esc(l.acc) : l.link ? ' · de un gasto compartido' : ' · sin cuenta'}</div>
+    ${(l.payments || []).map(p => `<div class="row" style="padding:4px 0;font-size:13.5px"><span class="muted">${l.dir === 'me-deben' ? 'Cobro' : 'Pago'} del ${dayLabel(p.date)}${p.acc ? ' en ' + esc(p.acc) : ''}</span><span><b>${money(p.amount)}</b> <button class="link" data-act="loanpaydel" data-l="${l.id}" data-id="${p.id}">Deshacer</button></span></div>`).join('')}
     <div class="btns">${loanLeft(l) > 0 ? `<button class="btn sm" data-act="loanpay" data-id="${l.id}">Registrar pago</button>` : '<span class="pill pos">Saldado</span>'}<button class="btn sm danger" data-act="loandel" data-id="${l.id}">Borrar</button></div></div>`).join('');
   sheet(name, `<div class="card"><div class="label">${p.net > 0 ? 'Te debe' : p.net < 0 ? 'Le debés' : 'Saldado'}</div><div class="big ${p.net > 0 ? 'pos' : p.net < 0 ? 'neg' : ''}">${money(Math.abs(p.net))}</div>
     ${p.net > 0 ? `<button class="btn" data-act="remind" data-k="${esc(k)}">Recordar por WhatsApp</button>` : ''}</div><div class="list">${lines}</div>`);
@@ -814,23 +878,52 @@ const act = {
   newdebt: () => formDebt(),
   newgroup: () => formGroup(),
   newgexp: () => formGexp(S.groups.find(g => g.id === openGroup)),
-  tx: el => formTx(S.tx.find(t => t.id === el.dataset.id)),
-  txdel: el => { if (confirm('¿Eliminar este movimiento?')) { S.tx = S.tx.filter(t => t.id !== el.dataset.id); closeSheet(); commit(); } },
+  tx: el => {
+    const t = S.tx.find(x => x.id === el.dataset.id); if (!t) return;
+    if (t.payRef) return toast('Es el pago de una cuota: se maneja desde la deuda');
+    if (t.gref) return toast('Es tu parte de un gasto de grupo: editalo desde el grupo');
+    formTx(t);
+  },
+  txdel: el => {
+    const t = S.tx.find(x => x.id === el.dataset.id); if (!t) return;
+    if (t.payRef) return toast('Es el pago de una cuota: usá “Deshacer el último pago” en la deuda');
+    if (t.gref) return toast('Es tu parte de un gasto de grupo: eliminalo desde el grupo');
+    const linked = S.loans.filter(l => l.link === t.id);
+    if (linked.some(l => (l.payments || []).length)) return toast('Ya cobraste parte de esto: primero deshacé esos cobros en Deudas ▸ Personas');
+    if (!confirm(linked.length ? `¿Eliminar este gasto? También se quitan los ${money(sum(linked, l => l.amount))} por recuperar de ${linked.map(l => l.person).join(', ')}.` : '¿Eliminar este movimiento?')) return;
+    S.tx = S.tx.filter(x => x.id !== t.id); S.loans = S.loans.filter(l => l.link !== t.id); closeSheet(); commit();
+  },
   debt: el => sheetDebt(S.debts.find(d => d.id === el.dataset.id)),
   debtedit: el => formDebt(S.debts.find(d => d.id === el.dataset.id)),
-  debtdel: el => { if (confirm('¿Eliminar esta deuda?')) { S.debts = S.debts.filter(d => d.id !== el.dataset.id); closeSheet(); commit(); } },
-  payquota: el => {
-    const d = S.debts.find(x => x.id === el.dataset.id); if (!d || d.cuotasPagas >= d.cuotas) return;
-    d.cuotasPagas++; S.tx.push({ id: uid(), type: 'gasto', amount: d.cuota, cat: 'Deudas', note: `${d.name} · cuota ${d.cuotasPagas}/${d.cuotas}`, date: today() });
-    commit(); sheetDebt(d); toast('Cuota registrada');
+  debtdel: el => {
+    const d = S.debts.find(x => x.id === el.dataset.id), ptx = (d?.payments || []).filter(p => p.txId).length;
+    if (confirm(`¿Eliminar esta deuda?${ptx ? ` Los ${ptx} gastos de cuotas que anotaste con ella se quedan en tus movimientos (borralos aparte si querés).` : ''}`)) { S.debts = S.debts.filter(x => x.id !== el.dataset.id); closeSheet(); commit(); }
+  },
+  payquota: el => { const d = S.debts.find(x => x.id === el.dataset.id); if (d && d.cuotasPagas < d.cuotas) formPayQuota(d); },
+  undoquota: el => {
+    const d = S.debts.find(x => x.id === el.dataset.id); if (!d) return;
+    if (!confirm('¿Deshacer el último pago? Se quita también el movimiento vinculado y la cuota vuelve a quedar pendiente.')) return;
+    if (undoInstallment(d)) { commit(); sheetDebt(d); toast('Pago deshecho'); }
   },
   person: el => sheetPerson(el.dataset.k),
   loanpay: el => {
-    const l = S.loans.find(x => x.id === el.dataset.id);
-    sheet('Registrar pago', `<form data-form="loanpay" data-id="${l.id}">${field(`Monto (resta ${money(loanLeft(l))})`, MI(`<input class="money" name="amount" type="text" inputmode="decimal" value="${fmtIn(loanLeft(l))}" required autofocus>`, true))}
-      ${field('Fecha', `<input type="date" name="date" value="${today()}">`)}<button class="btn block">Guardar</button></form>`);
+    const l = S.loans.find(x => x.id === el.dataset.id), cobro = l.dir === 'me-deben';
+    sheet(cobro ? 'Registrar cobro' : 'Registrar pago', `<form data-form="loanpay" data-id="${l.id}" data-sign="${cobro ? 1 : -1}">${field(`Monto (resta ${money(loanLeft(l))})`, MI(`<input class="money" name="amount" type="text" inputmode="decimal" value="${fmtIn(loanLeft(l))}" required autofocus>`, true))}
+      ${field('Fecha', `<input type="date" name="date" value="${today()}">`)}
+      ${accSelect('acc', l.acc || '', cobro ? 'No elegir cuenta (no toca mis saldos)' : 'No elegir cuenta (no toca mis saldos)', cobro ? '¿En qué cuenta te entró?' : '¿De qué cuenta salió?')}
+      <p class="muted" style="margin:0;font-size:13.5px">${cobro ? 'Al cobrar sube la cuenta y baja lo que te deben. No se anota como ingreso.' : 'Al pagar baja la cuenta y lo que debés. No se anota como gasto.'}</p>
+      <button class="btn block">Guardar</button></form>`);
+    accNoteDraw($('form[data-form=loanpay]'));
   },
-  loandel: el => { if (confirm('¿Borrar este registro?')) { const k = personKey(S.loans.find(l => l.id === el.dataset.id) || {}); S.loans = S.loans.filter(l => l.id !== el.dataset.id); commit(); sheetPerson(k); } },
+  loanpaydel: el => {
+    const l = S.loans.find(x => x.id === el.dataset.l), p = l?.payments.find(x => x.id === el.dataset.id); if (!p) return;
+    if (!confirm(`¿Deshacer este ${l.dir === 'me-deben' ? 'cobro' : 'pago'} de ${money(p.amount)}?${p.acc ? ' La cuenta vuelve a su saldo anterior.' : ''} Lo pendiente vuelve a subir.`)) return;
+    l.payments = l.payments.filter(x => x.id !== p.id); const k = personKey(l); commit(); sheetPerson(k);
+  },
+  loandel: el => {
+    const l = S.loans.find(x => x.id === el.dataset.id) || {}, moved = l.acc || (l.payments || []).some(p => p.acc), linked = l.link ? ' Es la parte por recuperar de un gasto compartido: tu gasto propio no cambia.' : '';
+    if (confirm(`¿Borrar este registro?${moved ? ' Las cuentas que movió vuelven a su saldo anterior.' : ''}${linked}`)) { const k = personKey(l); S.loans = S.loans.filter(x => x.id !== el.dataset.id); commit(); sheetPerson(k); }
+  },
   remind: el => {
     const k = el.dataset.k, loans = S.loans.filter(l => personKey(l) === k && l.dir === 'me-deben' && loanLeft(l) > 0);
     const p = peopleList().find(x => x.key === k), total = sum(loans, loanLeft), first = p.name.split(' ')[0];
@@ -853,14 +946,14 @@ const act = {
   },
   group: el => { openGroup = el.dataset.id; render(); $('#scroll').scrollTo({ top: 0, behavior: 'instant' }); },
   gback: () => { openGroup = null; render(); },
-  gdel: () => { if (confirm('¿Eliminar el grupo y todos sus gastos?')) { S.groups = S.groups.filter(g => g.id !== openGroup); openGroup = null; commit(); } },
+  gdel: () => { if (confirm('¿Eliminar el grupo y todos sus gastos? Tu parte de esos gastos, si la sumaste a tus gastos, también se quita.')) { S.tx = S.tx.filter(t => t.gref?.g !== openGroup); S.groups = S.groups.filter(g => g.id !== openGroup); openGroup = null; commit(); } },
   gexp: el => { const g = S.groups.find(x => x.id === openGroup), e = g.expenses.find(x => x.id === el.dataset.id); e.items ? formItems(g, e) : formGexp(g, e); },
   gequal: () => {   // reparte en partes iguales entre los integrantes de la lista (en pesos o en %)
     const f = $('form[data-form=gexp]'), mode = f.querySelector('[name=gmode]:checked').value, ins = [...f.querySelectorAll(mode === 'pct' ? '.gs-pct' : '.gs-amt')];
     const target = mode === 'pct' ? 100 : (parseAmount(f.amount.value) || 0), n = ins.length; if (!n || !(target > 0)) return toast('Poné primero el monto');
     const each = Math.floor(target / n * 100) / 100; ins.forEach((i, k) => { i.value = fmtIn(k === 0 ? Math.round((target - each * (n - 1)) * 100) / 100 : each); }); gDraw();
   },
-  gexpdel: el => { const g = S.groups.find(x => x.id === openGroup); g.expenses = g.expenses.filter(e => e.id !== el.dataset.id); closeSheet(); commit(); },
+  gexpdel: el => { const g = S.groups.find(x => x.id === openGroup), e = g.expenses.find(x => x.id === el.dataset.id); if (e?.txId) S.tx = S.tx.filter(t => t.id !== e.txId); g.expenses = g.expenses.filter(x => x.id !== el.dataset.id); closeSheet(); commit(); },
   install: async () => { if (!installEv) return; installEv.prompt(); try { await installEv.userChoice; } catch { } installEv = null; closeSheet(); },
   reload: () => location.reload(),
   checkupdate: async () => {
@@ -879,7 +972,7 @@ const act = {
     <h3>Para cobrar</h3>
     <label>Mi alias o CBU, para cobrar por WhatsApp<input type="text" id="me-alias" value="${esc(S.me?.alias || '')}" placeholder="mi.alias.mp" autocomplete="off" autocapitalize="off"></label>
     <h3>Tus datos</h3>
-    <p class="muted" style="margin:0">Viven solo en este dispositivo. Hacé backups seguido, sobre todo antes de cambiar de celular.</p>
+    ${backupStatusHtml()}
     <div class="btns"><button class="btn" data-act="export">Exportar backup</button>
     <label class="btn ghost" style="cursor:pointer">Importar backup<input type="file" accept="application/json" id="imp" hidden></label>
     <button class="btn danger" data-act="wipe">Borrar todo</button></div>
@@ -888,6 +981,10 @@ const act = {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' }));
     a.download = `plata-backup-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1e3);
   },
+  infomes: () => sheet('Resultado del mes', `<p style="margin:0">Es lo que <b>entró menos lo que gastaste este mes</b>. “Por día restante” divide ese resultado por los días que quedan hasta fin de mes.</p>
+    <h3>Qué incluye</h3><p class="muted" style="margin:0">Los ingresos y gastos que anotaste este mes, de cualquier cuenta.</p>
+    <h3>Qué no incluye</h3><p class="muted" style="margin:0">Tus saldos en cuentas, lo que tenés que pagar (cuotas, deudas, préstamos), lo que te deben, ni gastos que todavía no cargaste. <b>No es plata disponible</b>: para saber cuánto tenés hoy mirá “Balance general”.</p>`),
+  saveerrx: () => { $('#saveerr').hidden = true; },
   accounts: sheetAccounts,
   acc: el => sheetAcc(el.dataset.n),
   newacc: formNewAcc,
@@ -927,7 +1024,7 @@ const forms = {
     const g = S.groups.find(x => x.id === openGroup), amount = parseAmount(f.amount.value);
     if (!(amount > 0)) return toast('Monto inválido');
     const from = f.from.value, to = f.to.value, alias = f.alias?.value.trim();
-    (g.payments ||= []).push({ id: uid(), from, to, amount: Math.round(amount * 100) / 100, date: f.date.value || today() });
+    (g.payments ||= []).push({ id: uid(), from, to, amount: Core.round2(amount), date: f.date.value || today(), ...(f.acc?.value ? { acc: f.acc.value } : {}) });
     if (alias !== undefined) { if (to === 'Yo') (S.me ||= {}).alias = alias; else if (from === 'Yo') (g.aliases ||= {})[to] = alias; }
   },
   tx(f, id) {
@@ -937,26 +1034,48 @@ const forms = {
     let cat = findCat(type, raw);
     if (!cat) { cat = raw[0].toUpperCase() + raw.slice(1); ((S.customCats ||= { gasto: [], ingreso: [] })[type] ||= []).push(cat); }
     if (!f.method.value.trim()) return toast('Elegí una cuenta');
-    const o = { id: id || uid(), type, amount, cat, method: ensureMethod(f.method.value), note: f.note.value.trim(), date: f.date.value };
+    const o = { id: id || uid(), type, amount: Core.round2(amount), cat, method: ensureMethod(f.method.value), note: f.note.value.trim(), date: f.date.value };
+    if (id) { const old = S.tx.find(t => t.id === id); if (old) for (const k of ['paid', 'debtRef', 'payRef', 'gref', 'imp']) if (old[k] != null) o[k] = old[k]; if (o.paid != null && o.paid !== o.amount) o.amount = old.amount; }   // un gasto dividido conserva su parte y su vínculo
+    let owed = [];
+    if (!id && type === 'gasto' && f.shon?.checked) {
+      const sh = shParse(f);
+      if (!(sh.n >= 2)) return toast('Poné cuántas personas eran (2 o más)');
+      if (sh.names.length !== sh.n - 1) return toast(`Faltan nombres: son ${sh.n - 1} personas además de vos`);
+      if (new Set(sh.names.map(norm)).size !== sh.names.length || sh.names.some(x => norm(x) === 'yo')) return toast('Los nombres no pueden repetirse ni ser “Yo”');
+      if (!(sh.parts[0] > 0)) return toast('El monto es muy chico para dividirlo');
+      o.paid = Core.round2(amount); o.amount = sh.parts[0] / 100;
+      owed = sh.names.map((nm, i) => ({ id: uid(), dir: 'me-deben', person: nm, amount: sh.parts[i + 1] / 100, concept: o.note || o.cat, phone: '', date: o.date, payments: [], link: o.id }));
+    }
     S.lastMethod = o.method;
     id ? S.tx[S.tx.findIndex(t => t.id === id)] = o : S.tx.push(o);
+    S.loans.push(...owed);
     month = o.date.slice(0, 7); view = view === 'home' ? 'home' : 'mov';
   },
   debt(f, id) {
-    const total = parseAmount(f.total.value), cuotas = parseInt(f.cuotas.value), paid = Math.min(parseInt(f.paid.value) || 0, cuotas);
+    const total = parseAmount(f.total.value), cuotas = parseInt(f.cuotas.value), paid = Math.min(Math.max(parseInt(f.paid.value) || 0, 0), cuotas);
     if (!(total > 0) || !(cuotas > 0)) return toast('Revisá monto y cuotas');
     if (!f.name.value.trim()) return toast('Poné un nombre a la deuda');
-    const o = { id: id || uid(), name: f.name.value.trim(), cuotas, cuotasPagas: paid, cuota: Math.round(total / cuotas * 100) / 100, dueDay: parseInt(f.dueDay.value) || 0 };
+    const old = id ? S.debts.find(d => d.id === id) : null, firstDue = f.firstDue.value || '';
+    // el total se reparte en centavos: $ 100 en 3 = 33,34 + 33,33 + 33,33 (el centavo sobrante va a las primeras cuotas)
+    const o = { ...(old || {}), id: id || uid(), name: f.name.value.trim(), total: Core.round2(total), cuotas, cuotasPagas: paid, cuota: Core.fromCents(Core.cuotaAmountsC(Core.toCents(total), cuotas)[0]),
+      dueDay: firstDue ? +firstDue.slice(8) : (parseInt(f.dueDay.value) || 0), countAsExpense: f.asExpense.checked, payments: old?.payments || [] };
+    if (firstDue) o.firstDue = firstDue; else delete o.firstDue;
     id ? S.debts[S.debts.findIndex(d => d.id === id)] = o : S.debts.push(o);
+  },
+  payquota(f, id) {
+    const d = S.debts.find(x => x.id === id), amount = parseAmount(f.amount.value); if (!d || d.cuotasPagas >= d.cuotas) return false;
+    if (!(amount > 0)) return toast('Monto inválido');
+    payInstallment(d, { amount, date: f.date.value || today(), acc: f.acc.value || '' });
+    commit(); sheetDebt(d); toast('Cuota registrada'); return 'done';
   },
   loan(f) {
     const amount = parseAmount(f.amount.value); if (!(amount > 0)) return toast('Monto inválido');
     if (!f.person.value.trim()) return toast('Escribí el nombre de la persona');
-    S.loans.push({ id: uid(), dir: f.dir.value, person: f.person.value.trim(), amount, concept: f.concept.value.trim(), phone: f.phone.value.trim(), date: f.date.value || today(), payments: [] });
+    S.loans.push({ id: uid(), dir: f.dir.value, person: f.person.value.trim(), amount: Core.round2(amount), concept: f.concept.value.trim(), phone: f.phone.value.trim(), date: f.date.value || today(), payments: [], ...(f.acc.value ? { acc: f.acc.value } : {}) });
   },
   loanpay(f, id) {
     const l = S.loans.find(x => x.id === id), a = parseAmount(f.amount.value); if (!(a > 0)) return toast('Monto inválido');
-    (l.payments ||= []).push({ id: uid(), amount: Math.min(a, loanLeft(l)), date: f.date.value });
+    (l.payments ||= []).push({ id: uid(), amount: Math.min(Core.round2(a), loanLeft(l)), date: f.date.value || today(), ...(f.acc.value ? { acc: f.acc.value } : {}) });
     commit(); closeSheet(); sheetPerson(personKey(l)); return 'done';
   },
   group(f) {
@@ -978,11 +1097,21 @@ const forms = {
       const tot = sum(ins, x => x.v), target = mode === 'pct' ? 100 : amount, left = Math.round((target - tot) * 100) / 100;
       if (Math.abs(left) >= 0.01) return toast(left > 0 ? `Falta repartir ${mode === 'pct' ? left + '%' : money(left)}` : `Te pasaste ${mode === 'pct' ? -left + '%' : money(-left)}`);
       const used = ins.filter(x => x.v > 0); if (!used.length) return toast('Repartí el gasto entre alguien');
-      const sh = {}; used.forEach(x => sh[x.n] = Math.round((mode === 'pct' ? amount * x.v / 100 : x.v) * 100) / 100);
-      const diff = Math.round((amount - sum(Object.values(sh), v => v)) * 100) / 100;   // centavos de redondeo: van al que más tiene
-      if (diff) { const big = Object.keys(sh).sort((a, b) => sh[b] - sh[a])[0]; sh[big] = Math.round((sh[big] + diff) * 100) / 100; }
+      // por %: reparto proporcional que conserva el total (los centavos sobrantes van al de mayor resto, y a igualdad al primero de la lista)
+      const sh = {}, pc = mode === 'pct' ? Core.splitCents(Core.toCents(amount), used.map(x => x.v)) : null;
+      used.forEach((x, i) => { sh[x.n] = mode === 'pct' ? pc[i] / 100 : Core.round2(x.v); });
       o.shares = sh; o.split = Object.keys(sh); o.mode = mode;
       if (mode === 'pct') o.pcts = Object.fromEntries(used.map(x => [x.n, x.v]));
+    }
+    // "mi parte" como gasto propio: un movimiento vinculado al gasto del grupo (sale de la cuenta solo si pagué yo)
+    const prev = id ? g.expenses.find(e => e.id === id) : null; if (prev?.txId) S.tx = S.tx.filter(t => t.id !== prev.txId);
+    g.track = !!f.mine?.checked;
+    if (g.track) {
+      const my = Core.expenseSharesC(o)['Yo'] || 0, mcat = f.mcat.value || 'Otros'; g.mcat = mcat;
+      if (my !== 0) {
+        const t = { id: uid(), type: 'gasto', amount: my / 100, paid: o.paidBy === 'Yo' ? Core.round2(o.amount) : 0, cat: mcat, note: `${o.desc} · ${g.name}`, date: o.date, gref: { g: g.id, e: o.id }, ...(o.paidBy === 'Yo' && f.macc.value ? { method: f.macc.value } : {}) };
+        S.tx.push(t); o.txId = t.id;
+      }
     }
     id ? g.expenses[g.expenses.findIndex(e => e.id === id)] = o : g.expenses.push(o);
   }
@@ -993,12 +1122,19 @@ document.addEventListener('click', e => {
   if (el) { act[el.dataset.act]?.(el); return; }
   if (e.target.id === 'overlay') closeSheet();
 });
-document.addEventListener('submit', e => {
+const captureInputs = box => [...box.querySelectorAll('input,select,textarea')].map(i => (i.type === 'checkbox' || i.type === 'radio' ? i.checked : i.value));
+const restoreInputs = (box, vals) => [...box.querySelectorAll('input,select,textarea')].forEach((i, k) => { if (k >= vals.length || i.type === 'file') return; if (i.type === 'checkbox' || i.type === 'radio') i.checked = vals[k]; else i.value = vals[k]; });
+document.addEventListener('submit', async e => {
   const f = e.target.closest('form[data-form]'); if (!f) return;
   e.preventDefault();
+  const body = $('#sheet-body'), snap = body.contains(f) ? { title: $('#sheet-title').textContent, html: body.innerHTML, vals: captureInputs(body) } : null;
+  commit.last = null;
   const r = forms[f.dataset.form](f, f.dataset.id || null);
-  if (r === 'done' || r === false) return;
-  if (r === undefined) { closeSheet(); commit(); toast('Guardado'); }
+  if (r === false) return;                                  // validación: ya avisó con un mensaje
+  if (r === undefined) { closeSheet(); commit(); }
+  const ok = commit.last ? await commit.last : true;
+  if (!ok) { if (snap) { sheet(snap.title, snap.html); restoreInputs($('#sheet-body'), snap.vals); } return; }   // no se guardó: la hoja vuelve con lo que se había escrito
+  if (r === undefined) toast('Guardado');
 });
 document.addEventListener('change', e => {
   if (e.target.name === 'dsub') { debtsTab = e.target.value; render(); return; }
@@ -1007,13 +1143,9 @@ document.addEventListener('change', e => {
     applyTheme(e.target.value); return;
   }
   if (e.target.id !== 'imp') return;
-  const file = e.target.files[0]; if (!file) return;
-  file.text().then(t => {
-    const v = JSON.parse(t);
-    if (!Array.isArray(v.tx) || !Array.isArray(v.debts) || !Array.isArray(v.loans) || !Array.isArray(v.groups)) throw 0;
-    if (confirm('Esto reemplaza tus datos actuales por los del backup. ¿Continuar?')) { S = normState(v); closeSheet(); commit(); toast('Backup importado'); }
-  }).catch(() => toast('Archivo inválido'));
+  const file = e.target.files[0]; e.target.value = ''; if (file) previewRestore(file);   // vista previa antes de reemplazar (respaldo.js)
 });
+
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
 // campo de categoría: desplegable + escritura con filtro por coincidencia
 // filas que se agregan después (calculadora, productos, importación): se aplica al tocar
@@ -1026,7 +1158,7 @@ document.addEventListener('input', e => {   // cuenta nueva escrita a mano + efe
   if (t.classList?.contains('newin')) { t.form[t.dataset.f].value = t.value; if (t.form.dataset.form === 'move') syncMove(t.form); }
   const f = t.closest?.('form[data-form=tx],form[data-form=move]'); if (f) accEffects(f);
 });
-document.addEventListener('input', e => { if (e.target.id === 'me-alias') { (S.me ||= {}).alias = e.target.value.trim(); save(); } });
+document.addEventListener('input', e => { if (e.target.id === 'me-alias') { (S.me ||= {}).alias = e.target.value.trim(); saveSoft(); } });
 document.addEventListener('focusin', e => { const i = e.target; if (i.matches('.combo input')) { i.dataset.prev = i.value; i.value = ''; comboRender(i, true); } });
 document.addEventListener('focusout', e => { const i = e.target; if (i.matches?.('.combo input') && !i.value.trim() && i.dataset.prev) i.value = i.dataset.prev; });
 document.addEventListener('click', e => { if (!e.target.closest('.combo')) document.querySelectorAll('.combo-list').forEach(l => l.hidden = true); });

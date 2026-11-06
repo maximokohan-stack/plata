@@ -84,18 +84,19 @@ function calcDraw0() {
   }
   const P = readP();
   if (cmode === 'who') {
-    const tot = sum(P, p => p.amt);
-    if (!(tot > 0)) return hint('Cargá lo que puso cada uno.');
-    const share = tot / P.length, bal = Object.fromEntries(P.map(p => [p.name, p.amt - share]));
-    cTransfers = settle(bal);
+    // en centavos: el total se conserva y los centavos sobrantes van a las primeras personas de la lista
+    const paidC = P.map(p => Core.toCents(p.amt)), totC = Core.sumC(paidC), tot = Core.fromCents(totC);
+    if (!(totC > 0)) return hint('Cargá lo que puso cada uno.');
+    const shC = Core.splitCents(totC, P.length), balC = Object.fromEntries(P.map((p, i) => [p.name, paidC[i] - shC[i]])), share = Core.fromCents(shC[0]);
+    cTransfers = Core.settleC(balC).map(t => ({ from: t.from, to: t.to, amount: t.amount }));
     $('#c-out').innerHTML = `<div class="label">Total ${money(tot)} · le toca a cada uno ${money(share)}</div>
-      ${P.map(p => { const b = p.amt - share; return rowLine(p.name, `puso ${money(p.amt)} y le tocaban ${money(share)} → ${b > 0.005 ? 'le deben ' + money(b) : b < -0.005 ? 'debe ' + money(-b) : 'está a mano'}`, (b >= 0 ? '+' : '−') + money(Math.abs(b)), b > 0.005 ? 'pos' : b < -0.005 ? 'neg' : 'muted'); }).join('')}
+      ${P.map((p, i) => { const b = balC[p.name] / 100; return rowLine(p.name, `puso ${money(p.amt)} y le tocaban ${money(shC[i] / 100)} → ${b > 0 ? 'le deben ' + money(b) : b < 0 ? 'debe ' + money(-b) : 'está a mano'}`, (b >= 0 ? '+' : '−') + money(Math.abs(b)), b > 0 ? 'pos' : b < 0 ? 'neg' : 'muted'); }).join('')}
       <div class="label" style="margin-top:14px">Para quedar a mano</div>
       ${cTransfers.length ? cTransfers.map(t => `<div style="padding:4px 0"><b>${esc(t.from)}</b> → <b>${esc(t.to)}</b> <b style="float:right">${money(t.amount)}</b></div>`).join('') : '<div>Ya están a mano 🎉</div>'}`;
     cText = `${head}Total ${money(tot)} (${money(share)} c/u).\n` + (cTransfers.length ? cTransfers.map(t => `${t.from} le transfiere ${money(t.amount)} a ${t.to}`).join('\n') : 'Todos a mano.');
     const mine = cTransfers.some(t => /^yo( |$)/i.test(t.from) || /^yo( |$)/i.test(t.to));
     const payers = P.filter(p => p.amt > 0.005);
-    cSave = { names: P.map(p => p.name), build: () => payers.map(p => ({ desc: `${why_ || 'Cuenta'} (${p.name})`, amount: Math.round(p.amt * 100) / 100, paidBy: p.name, split: P.map(q => q.name) })) };
+    cSave = { names: P.map(p => p.name), build: () => payers.map(p => ({ desc: `${why_ || 'Cuenta'} (${p.name})`, amount: Core.round2(p.amt), paidBy: p.name, split: P.map(q => q.name) })) };
     $('#c-actions').innerHTML = (mine ? `<button class="btn sm" data-act="calcreg">Registrar lo mío en Personas</button>` : '') + shareBtn + groupBtn; return;
   }
   if (cmode === 'fair') {
@@ -105,30 +106,35 @@ function calcDraw0() {
       .filter(i => i.name || !isNaN(i.amount));
     const valid = items.filter(i => isFinite(i.amount) && i.amount !== 0);
     if (!valid.length) return hint('Cargá los productos de la cuenta.');
-    const warn = [], per = Object.fromEntries(people.map(p => [p.id, { v: 0, lines: [] }]));
+    const warn = [], baseC = Object.fromEntries(people.map(p => [p.id, 0])), lines = Object.fromEntries(people.map(p => [p.id, []]));
     valid.forEach(i => {
       if (!i.pids.length) return warn.push(`Marcá quién consumió “${esc(i.name || 'un producto')}”.`);
-      i.pids.forEach(id => { const part = i.amount / i.pids.length; per[id].v += part; per[id].lines.push(`${i.name || 'Producto'} ${money(part)}`); });
+      const parts = Core.splitCents(Core.toCents(i.amount), i.pids.length);   // cada producto se reparte conservando sus centavos
+      i.pids.forEach((id, k) => { baseC[id] += parts[k]; lines[id].push(`${i.name || 'Producto'} ${money(parts[k] / 100)}`); });
     });
     items.filter(i => !isFinite(i.amount) && i.name).forEach(i => warn.push(`Falta el precio de “${esc(i.name)}”.`));
-    const sub = sum(valid, i => i.amount), total = sub * (1 + tip / 100);
+    const subC = Core.sumC(valid.map(i => Core.toCents(i.amount))), tipC = Math.round(subC * tip / 100), sub = subC / 100;
+    // la propina se reparte en proporción a lo consumido (sin tocar el total)
+    const w = people.map(p => Math.max(0, baseC[p.id])), tipParts = Core.sumC(w) > 0 ? Core.splitCents(tipC, w) : people.map(() => 0);
+    const total = (subC + tipC) / 100;
     if (cScanTotal != null && Math.abs(sub - cScanTotal) > 1) warn.push(`La suma (${money(sub)}) no coincide con el total del ticket (${money(cScanTotal)}). Revisá los productos.`);
-    const res = people.map(p => ({ name: p.name, v: per[p.id].v * (1 + tip / 100), why: per[p.id].lines.map(esc).join(' + '), whyTxt: per[p.id].lines.join(' + ') }));
+    const res = people.map((p, k) => ({ name: p.name, v: (baseC[p.id] + tipParts[k]) / 100, why: lines[p.id].map(esc).join(' + '), whyTxt: lines[p.id].join(' + ') }));
     $('#c-out').innerHTML = `<div class="label">Le toca a cada uno</div>${res.map(r => rowLine(r.name, r.why || 'No consumió nada', money(r.v))).join('')}
       <div class="muted" style="margin-top:8px;font-size:13px">Total ${money(total)}${tip ? ` · incluye ${tip}% de propina (${money(total - sub)})` : ''}</div>${warn.map(w => `<div class="warn" style="margin-top:8px">⚠ ${w}</div>`).join('')}`;
     cText = `${head}Total ${money(total)}${tip ? ` (con ${tip}% de propina)` : ''}:\n` + res.map(r => `${r.name}: ${money(r.v)}${r.whyTxt ? ` (${r.whyTxt})` : ''}`).join('\n');
-    const fixed = res.map(r => ({ n: r.name, v: Math.round(r.v * 100) / 100 }));
+    const fixed = res.map(r => ({ n: r.name, v: Core.round2(r.v) }));
     cSave = warn.some(w => w.startsWith('Marcá') || w.startsWith('Falta')) ? null : { names: people.map(p => p.name), build: paidBy => [cSaveExpense(why_ || 'Cuenta', total, paidBy, fixed)] };
     $('#c-actions').innerHTML = shareBtn + (cSave ? groupBtn : ''); return;
   }
   // ingresos
   const inc = sum(P, p => p.amt);
   if (!(total > 0) || !(inc > 0)) return hint('Ingresá el total y el ingreso de cada uno.');
-  const res = P.map(p => ({ name: p.name, pct: p.amt / inc * 100, v: total * p.amt / inc }));
+  const partsC = Core.splitCents(Core.toCents(total), P.map(p => p.amt));   // proporcional al ingreso y sumando exactamente el total
+  const res = P.map((p, i) => ({ name: p.name, pct: p.amt / inc * 100, v: partsC[i] / 100 }));
   $('#c-out').innerHTML = `<div class="label">Le toca a cada uno</div>${res.map(r => rowLine(r.name, r.pct.toFixed(1) + '% del total', money(r.v))).join('')}
     <div class="muted" style="margin-top:8px;font-size:13px">Todos aportan el ${(total / inc * 100).toFixed(1)}% de su ingreso.</div>`;
   cText = `${head}Total ${money(total)} según ingresos:\n` + res.map(r => `${r.name}: ${money(r.v)} (${r.pct.toFixed(0)}%)`).join('\n');
-  const fixedI = res.map(r => ({ n: r.name, v: Math.round(r.v * 100) / 100 }));
+  const fixedI = res.map(r => ({ n: r.name, v: Core.round2(r.v) }));
   cSave = { names: P.map(p => p.name), build: paidBy => [cSaveExpense(why_ || 'Cuenta', total, paidBy, fixedI)] };
   $('#c-actions').innerHTML = shareBtn + groupBtn;
 }

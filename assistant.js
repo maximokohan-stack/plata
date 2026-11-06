@@ -9,7 +9,7 @@ const TOOLS = [
     input_schema: { type: 'object', properties: { month: { type: 'string', description: 'YYYY-MM' }, category: { type: 'string' }, limit: { type: 'integer', description: 'Máximo de resultados (default 30)' } } } },
   { name: 'add_transaction', description: 'Registra un gasto o un ingreso. Categorías de gasto de fábrica: ' + CATS.gasto.map(c => c[0]).join(', ') + '; de ingreso: ' + CATS.ingreso.map(c => c[0]).join(', ') + '. El usuario también tiene categorías propias (ver "categories" en get_snapshot): usá una existente si encaja; si ninguna encaja, podés crear una nueva con un nombre corto.',
     input_schema: { type: 'object', properties: { type: { type: 'string', enum: ['gasto', 'ingreso'] }, amount: { type: 'number', description: 'Monto en pesos, positivo' }, category: { type: 'string' }, method: { type: 'string', enum: METHODS, description: 'Método de pago (gasto) o por el que ingresó (ingreso). Si el usuario no lo dice, omitilo.' }, note: { type: 'string' }, date: { type: 'string', description: 'YYYY-MM-DD, por defecto hoy' } }, required: ['type', 'amount', 'category'] } },
-  { name: 'add_loan', description: 'Registra plata prestada: direction "me-deben" si el usuario le prestó a alguien, "debo" si le prestaron a él.',
+  { name: 'add_loan', description: 'Registra plata prestada: direction "me-deben" si el usuario le prestó a alguien, "debo" si le prestaron a él. Es un registro histórico: NO mueve ninguna cuenta.',
     input_schema: { type: 'object', properties: { direction: { type: 'string', enum: ['me-deben', 'debo'] }, person: { type: 'string' }, amount: { type: 'number' }, concept: { type: 'string' } }, required: ['direction', 'person', 'amount'] } },
   { name: 'register_payment', description: 'Registra un pago (total o parcial) sobre lo que una persona le debe al usuario o lo que él le debe a ella. Se aplica a los préstamos más viejos primero.',
     input_schema: { type: 'object', properties: { person: { type: 'string' }, direction: { type: 'string', enum: ['me-deben', 'debo'] }, amount: { type: 'number' } }, required: ['person', 'direction', 'amount'] } },
@@ -30,7 +30,7 @@ const runTool = {
       income: r2(sum(tx.filter(t => t.type === 'ingreso'), t => t.amount)), expenses: r2(sum(tx.filter(t => t.type === 'gasto'), t => t.amount)), expensesByCategory: byCat,
       expensesByPaymentMethod: tx.filter(t => t.type === 'gasto' && t.method).reduce((o, t) => (o[t.method] = r2((o[t.method] || 0) + t.amount), o), {}),
       people: peopleList().map(p => ({ name: p.name, net: r2(p.net), meaning: p.net > 0 ? 'te debe' : p.net < 0 ? 'le debés' : 'saldado' })),
-      debts: S.debts.map(d => ({ name: d.name, installmentsPaid: d.cuotasPagas, installmentsTotal: d.cuotas, installmentAmount: d.cuota, remaining: r2(debtLeft(d)), dueDay: d.dueDay || null })),
+      debts: S.debts.map(d => ({ name: d.name, installmentsPaid: d.cuotasPagas, installmentsTotal: d.cuotas, installmentAmount: cuotaAmt(d), remaining: r2(debtLeft(d)), dueDay: d.dueDay || null })),
       groups: S.groups.map(g => ({ name: g.name, total: r2(sum(g.expenses, e => e.amount)), toSettle: settle(groupBalances(g)).map(s => ({ from: s.from, to: s.to, amount: r2(s.amount) })) }))
     };
   },
@@ -67,7 +67,7 @@ const runTool = {
   pay_installment({ debt_name }) {
     const d = findDebt(debt_name); if (!d) throw new Error('No encontré esa deuda');
     if (d.cuotasPagas >= d.cuotas) throw new Error('Esa deuda ya está paga');
-    d.cuotasPagas++; S.tx.push({ id: uid(), type: 'gasto', amount: d.cuota, cat: 'Deudas', note: `${d.name} · cuota ${d.cuotasPagas}/${d.cuotas}`, date: today() });
+    payInstallment(d);
     commit(); return { ok: true, paid: `${d.cuotasPagas}/${d.cuotas}`, remaining: r2(debtLeft(d)) };
   }
 };

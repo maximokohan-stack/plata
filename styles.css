@@ -342,6 +342,11 @@ body.onb-open{overflow:hidden}
 .mi.pct>.cur{left:auto;right:14px}.mi.pct input[inputmode]{padding-left:14px;padding-right:32px}
 .gleft{display:flex;justify-content:space-between;align-items:center;background:var(--chip);border-radius:16px;padding:11px 14px;margin:2px 0 10px;font-size:14px}.gleft b{font-weight:600}
 .mrow{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--line)}.mrow:last-of-type{border:0}.mrow b{font-weight:600}
+/* error de guardado y resumen de restauración */
+.saveerr{position:fixed;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 10px);z-index:80;background:var(--ink);color:var(--bg);border-radius:20px;padding:14px 16px;font-size:14px;line-height:1.4;box-shadow:0 14px 40px rgba(0,0,0,.35);max-width:616px;margin:0 auto}
+.saveerr[hidden]{display:none}.saveerr .btn{min-height:40px}.saveerr .btn.ghost{color:var(--bg);box-shadow:inset 0 0 0 1.5px currentColor}
+.insight .info{min-width:28px;min-height:28px;border-radius:50%;font-size:14px;color:inherit;opacity:.8;vertical-align:baseline}
+.cmp3{display:grid;grid-template-columns:1fr auto auto;gap:6px 14px;font-size:14.5px;margin:8px 0}.cmp3 .h{color:var(--muted);font-size:12.5px;text-align:right}.cmp3 .n{text-align:right;font-weight:600}
 main.still>*{animation:none!important}
 .back{min-height:46px;display:inline-flex;align-items:center}
 :focus-visible{outline:3px solid var(--c1);outline-offset:2px}

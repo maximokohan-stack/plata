@@ -26,7 +26,7 @@ function onbDraw() {
       <img class="onb-logo" src="icons/icon.svg" alt="" width="84" height="84">
       <h1 id="onb-h" tabindex="-1">Tu plata, ordenada</h1><p class="onb-lead">Anotá lo que gastás y mirá en qué se va. Sin cuenta ni registro.</p>
       <div class="onb-pts">
-        <div><span class="ico">${onbSvg('lock')}</span><p><b>Queda en tu celu</b><span>Tus datos no salen de este teléfono.</span></p></div>
+        <div><span class="ico">${onbSvg('lock')}</span><p><b>Queda en tu celu</b><span>Plata no tiene cuenta ni servidor. Si activás la IA (opcional), lo que le pidas se envía al proveedor que elijas.</span></p></div>
         <div><span class="ico">${onbSvg('free')}</span><p><b>Gratis, sin mail ni contraseña</b><span>Abrís y empezás.</span></p></div>
         <div><span class="ico">${onbSvg('bolt')}</span><p><b>Anotar lleva 5 segundos</b><span>Monto, categoría y listo.</span></p></div>
       </div>
