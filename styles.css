@@ -350,6 +350,14 @@ body.onb-open{overflow:hidden}
 .csvprev{border-collapse:collapse;font-size:12.5px;width:100%}.csvprev td{padding:4px 8px;border:1px solid var(--line);white-space:nowrap;color:var(--muted)}
 .cmpdup{display:grid;gap:8px}
 .chat-note{margin:0;padding:6px 14px 0;font-size:12px;line-height:1.35;color:var(--muted)}
+.card .insight{font-size:14px;margin:8px 0 0;color:var(--muted)}.card .insight b{font-weight:700}
+/* carga rápida */
+details.more{margin:2px 0}details.more>summary{min-height:44px;display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600;color:var(--muted);list-style:none}
+details.more>summary::-webkit-details-marker{display:none}details.more>summary::before{content:"▸";font-size:12px}details.more[open]>summary::before{content:"▾"}
+.morebody{display:grid;gap:14px;padding:4px 0 8px}
+.stickybar{position:sticky;bottom:0;z-index:3;background:linear-gradient(transparent,var(--bg) 14px);padding:14px 0 calc(8px + env(safe-area-inset-bottom));display:grid;gap:8px}
+.rcards[hidden]{display:none}.rc.cursel{width:100%;border-radius:22px;background:var(--surface);box-shadow:inset 0 0 0 1.5px var(--line)}.rc.cursel .chg{color:var(--accent);font-weight:600;font-size:14px;margin-left:auto}
+.toast .toastbtn{margin-left:8px;color:var(--lime);font-weight:700;text-decoration:underline;min-height:32px;padding:0 6px}
 main.still>*{animation:none!important}
 .back{min-height:46px;display:inline-flex;align-items:center}
 :focus-visible{outline:3px solid var(--c1);outline-offset:2px}

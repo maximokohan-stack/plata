@@ -196,8 +196,8 @@ const groupConsumption = g => Object.fromEntries(Object.entries(Core.groupConsum
 const settle = bal => Core.settleC(Object.fromEntries(Object.entries(bal).map(([k, v]) => [k, Core.toCents(v)])));
 
 // ---------- vistas ----------
-let view = 'home', month = today().slice(0, 7), openGroup = null;
-const TITLES = { home: 'Inicio', mov: 'Por mes', split: 'Dividir', groups: 'Grupos', debts: 'Deudas y cobros' };
+let lastShared = 'groups', view = 'home', month = today().slice(0, 7), openGroup = null;
+const TITLES = { home: 'Inicio', mov: 'Movimientos', split: 'Compartidos', groups: 'Compartidos', debts: 'Deudas y cobros' };
 // aplica un cambio de estado y vuelve a dibujar sin animación y manteniendo el scroll
 function keepView(change) {
   const sc = $('#scroll'), y = sc.scrollTop, main = $('#main'); main.classList.add('still'); change(); render(); sc.scrollTo({ top: y, behavior: 'instant' });
@@ -210,7 +210,8 @@ const empty = (t, s) => `<div class="empty"><b>${t}</b>${s}</div>`;
 function vHome() {
   const cur = today().slice(0, 7), tx = S.tx.filter(t => t.date.startsWith(cur));
   const owedMe = sum(S.loans.filter(l => l.dir === 'me-deben'), loanLeft);
-  const iOwe = sum(S.loans.filter(l => l.dir === 'debo'), loanLeft) + sum(S.debts, debtLeft);
+  const iOwe = sum(S.loans.filter(l => l.dir === 'debo'), loanLeft);   // solo lo que debés a personas; las cuotas van en "Próximos pagos"
+  const debtsLeft = sum(S.debts, debtLeft), gBal = S.groups.map(g => groupBalances(g)['Yo'] || 0), gCred = sum(gBal.filter(v => v > 0)), gDeb = -sum(gBal.filter(v => v < 0));
   const due = S.debts.filter(d => d.cuotasPagas < d.cuotas && (d.firstDue || d.dueDay)).map(d => ({ d, n: nextDueDays(d) })).filter(x => x.n <= 10).sort((a, b) => a.n - b.n);
   // Balance general = plata que hay hoy en tus cuentas: saldos iniciales + todo lo que entró o salió de ellas (core.js)
   const balance = Core.fromCents(Core.totalCashC(S));
@@ -227,18 +228,22 @@ function vHome() {
   const eye = HIDE ? '<svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.5 6.6A17 17 0 0 0 2 12s3.6 7 10 7a10 10 0 0 0 4.2-.9M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
   return `
   <div class="card hero">
-    <div class="toprow"><div class="label">Balance general</div><button class="eye" data-act="hide" aria-label="${HIDE ? 'Mostrar montos' : 'Ocultar montos'}" aria-pressed="${HIDE}">${eye}</button></div>
+    <div class="toprow"><div class="label">Tu plata hoy</div><button class="eye" data-act="hide" aria-label="${HIDE ? 'Mostrar montos' : 'Ocultar montos'}" aria-pressed="${HIDE}">${eye}</button></div>
     <div class="big ${balance < 0 ? 'neg' : ''} ${bigCls(money(balance))}">${money(balance)}</div>
-    ${insight}
     ${drows ? `<button class="det" data-act="hdet" aria-expanded="${homeDet}"><i></i><span>${homeDet ? 'Detalle ▴' : 'Ver detalle ▾'}</span><i></i></button><div class="drows"${homeDet ? '' : ' hidden'}>${drows}</div>` : ''}
-    <div class="pair"><div><span class="label">Ingresos del mes</span><b class="pos">${money(mInc)}</b></div><div><span class="label">Gastos del mes</span><b class="neg">${money(mExp)}</b></div></div>
   </div>
+  <div class="card" id="mes"><div class="label">Este mes · ${monthLabel(cur)}</div>
+    <div class="row" style="align-items:flex-end"><div><div class="label">Ingresos</div><div class="stat pos${statCls(money(Math.max(mInc, mExp)))}">${money(mInc)}</div></div><div style="text-align:right"><div class="label">Gastos</div><div class="stat neg${statCls(money(Math.max(mInc, mExp)))}">${money(mExp)}</div></div></div>
+    ${insight}</div>
   ${typeof backupNudge === 'function' ? backupNudge() : ''}
-  ${owedMe || iOwe ? `<button class="card" data-act="tab" data-v="debts" style="text-align:left;width:100%"><div class="row"><div><div class="label">Me deben</div><div class="stat ${owedMe ? 'pos' : 'muted'}${statCls(money(Math.max(owedMe, iOwe)))}">${money(owedMe)}</div></div><div style="text-align:right"><div class="label">Debo</div><div class="stat ${iOwe ? 'neg' : 'muted'}${statCls(money(Math.max(owedMe, iOwe)))}">${money(iOwe)}</div></div></div></button>` : ''}
-  ${due.length ? `<h3>Vencimientos cercanos</h3><div class="list">${due.map(({ d, n }) => `
-    <button class="item" data-act="debt" data-id="${d.id}"><div class="dot">${stamp(d.name)}</div><div class="grow"><div class="t">${esc(d.name)}</div>
-    <div class="s ${n <= 3 ? 'warn' : ''}">${n < 0 ? 'Venció hace ' + (-n) + (n === -1 ? ' día' : ' días') : n === 0 ? 'Vence hoy' : n === 1 ? 'Vence mañana' : 'Vence en ' + n + ' días'}</div></div><div class="amt neg">${money(cuotaAmt(d))}</div></button>`).join('')}</div>` : ''}
   <div id="bk">${breakdownCard(tx, monthLabel(cur))}</div>
+  ${due.length || debtsLeft ? `<h3>Próximos pagos</h3><div class="list">${due.map(({ d, n }) => `
+    <button class="item" data-act="debt" data-id="${d.id}"><div class="dot">${stamp(d.name)}</div><div class="grow"><div class="t">${esc(d.name)}</div>
+    <div class="s ${n <= 3 ? 'warn' : ''}">${n < 0 ? 'Venció hace ' + (-n) + (n === -1 ? ' día' : ' días') : n === 0 ? 'Vence hoy' : n === 1 ? 'Vence mañana' : 'Vence en ' + n + ' días'}</div></div><div class="amt neg">${money(cuotaAmt(d))}</div></button>`).join('')}
+    ${debtsLeft ? `<button class="item" data-act="tab" data-v="debts" data-sub="cards"><div class="grow"><div class="t">Todas las cuotas y deudas</div><div class="s">Faltan pagar ${money(debtsLeft)}</div></div><span class="ch" aria-hidden="true">›</span></button>` : ''}</div>` : ''}
+  ${owedMe || iOwe || gCred || gDeb ? `<h3>Con otras personas</h3>` : ''}
+  ${owedMe || iOwe ? `<button class="card" data-act="tab" data-v="debts" style="text-align:left;width:100%"><div class="row"><div><div class="label">Te deben</div><div class="stat ${owedMe ? 'pos' : 'muted'}${statCls(money(Math.max(owedMe, iOwe)))}">${money(owedMe)}</div></div><div style="text-align:right"><div class="label">Debés</div><div class="stat ${iOwe ? 'neg' : 'muted'}${statCls(money(Math.max(owedMe, iOwe)))}">${money(iOwe)}</div></div></div></button>` : ''}
+  ${gCred || gDeb ? `<button class="item card" data-act="tab" data-v="groups" style="padding:12px 16px;margin-top:0"><div class="grow"><div class="t">En grupos</div><div class="s">Te deben ${money(gCred)} · debés ${money(gDeb)}</div></div><span class="ch" aria-hidden="true">›</span></button>` : ''}
   <h3>Últimos movimientos</h3><div class="card" style="padding:6px 14px">${txList(S.tx.slice().sort(byDate).slice(0, 5))}${S.tx.length ? `<div class="btns" style="margin:4px 0 8px"><button class="btn ghost block" data-act="tab" data-v="mov">Ver por mes</button></div>` : ''}</div>`;
 }
 
@@ -413,8 +418,9 @@ function vPeople() {
 }
 
 // Dividir: calculadoras para una cuenta puntual
+const sharedSeg = () => `<div class="seg" style="margin-bottom:14px" role="radiogroup" aria-label="Compartidos">${[['groups', 'Grupos'], ['split', 'Dividir una cuenta']].map(([v, n]) => `<label><input type="radio" name="shsub" value="${v}" ${view === v ? 'checked' : ''}><span>${n}</span></label>`).join('')}</div>`;
 function vSplit() {
-  return `<p class="muted" style="margin:0 0 14px">Para una cuenta puntual. Si es algo que se va acumulando (un viaje, el depto), usá <button class="link" data-act="tab" data-v="groups">Grupos</button>.</p>
+  return sharedSeg() + `<p class="muted" style="margin:0 0 14px">Para una cuenta puntual. Si es algo que se va acumulando (un viaje, el depto), usá <button class="link" data-act="tab" data-v="groups">Grupos</button>.</p>
   <div class="grid2 tiles">${[
     ['eq', 'Partes iguales', 'Con propina y redondeo'], ['who', 'Quién puso cuánto', 'Cada uno puso distinto'],
     ['fair', 'Por consumo', 'Producto por producto'], ['inc', 'Según ingresos', 'Proporcional al sueldo']
@@ -423,6 +429,7 @@ function vSplit() {
 }
 
 function vGroups() {
+  const seg = openGroup ? '' : sharedSeg();
   if (openGroup) {
     const g = S.groups.find(x => x.id === openGroup);
     if (!g) { openGroup = null; return vGroups(); }
@@ -438,15 +445,15 @@ function vGroups() {
     <div class="btns"><button class="btn danger sm" data-act="gdel">Eliminar grupo</button></div>`;
   }
   const newGroup = `<div class="btns"><button class="btn" data-act="newgroup">+ Nuevo grupo</button></div>`;
-  if (!S.groups.length) return `<div class="list">${empty('Sin grupos', 'Armá uno para un viaje, el depto o una salida larga y llevá la cuenta entre todos.')}</div>` + newGroup;
-  return `<div class="list">${S.groups.map(g => `<button class="item" data-act="group" data-id="${g.id}"><div class="dot">${stamp(g.name)}</div><div class="grow"><div class="t">${esc(g.name)}</div><div class="s">${g.members.length} personas · ${g.expenses.length} ${g.expenses.length === 1 ? 'gasto' : 'gastos'}</div></div><div class="amt neg">${money(sum(g.expenses, e => e.amount))}</div></button>`).join('')}</div>` + newGroup;
+  if (!S.groups.length) return seg + `<div class="list">${empty('Todavía no creaste grupos', 'Armá uno para un viaje, el depto o una salida larga y llevá la cuenta entre todos.')}</div>` + newGroup;
+  return seg + `<div class="list">${S.groups.map(g => `<button class="item" data-act="group" data-id="${g.id}"><div class="dot">${stamp(g.name)}</div><div class="grow"><div class="t">${esc(g.name)}</div><div class="s">${g.members.length} personas · ${g.expenses.length} ${g.expenses.length === 1 ? 'gasto' : 'gastos'}</div></div><div class="amt neg">${money(sum(g.expenses, e => e.amount))}</div></button>`).join('')}</div>` + newGroup;
 }
 
 function render() {
   $('#title').textContent = openGroup && view === 'groups' ? 'Grupo' : TITLES[view];
   $('#sub').textContent = new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
   $('#main').innerHTML = withMask({ home: vHome, mov: vMov, split: vSplit, groups: vGroups, debts: vDeudas }[view]);
-  const tabOn = view === 'mov' ? 'home' : view;   // "Movimientos" cuelga de Inicio
+  const tabOn = view === 'split' || view === 'groups' ? 'shared' : view;   // Dividir y Grupos viven juntos en "Compartidos"
   document.querySelectorAll('#tabs button[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === tabOn));
   syncHistory();
 }
@@ -454,8 +461,17 @@ function render() {
 // ---------- hoja modal ----------
 // los campos de texto no deben ofrecer lo escrito antes (el navegador lo hace si no se le dice que no)
 const noAutofill = root => root.querySelectorAll('input:not([autocomplete]):not([list]):not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file])').forEach(i => { i.setAttribute('autocomplete', 'off'); if (i.type === 'text') i.setAttribute('autocorrect', 'off'); });
-function sheet(title, html) { $('#sheet-title').textContent = title; $('#sheet-body').innerHTML = html; noAutofill($('#sheet-body')); $('#overlay').hidden = false; $('#sheet-body').closest('.sheet').scrollTop = 0; syncHistory(); }
-function closeSheet() { $('#overlay').hidden = true; $('#sheet-body').innerHTML = ''; syncHistory(); }
+let sheetOpener = null;
+const setInert = on => ['#scroll', '#tabs'].forEach(q => { const el = $(q); if (el) el.inert = on; });   // con una hoja abierta, lo de atrás no recibe foco ni toques
+function sheet(title, html) { if ($('#overlay').hidden) sheetOpener = document.activeElement; $('#sheet-title').textContent = title; $('#sheet-body').innerHTML = html; noAutofill($('#sheet-body')); $('#overlay').hidden = false; setInert(true); $('#sheet-body').closest('.sheet').scrollTop = 0; syncHistory(); }
+function closeSheet() { const was = !$('#overlay').hidden; $('#overlay').hidden = true; $('#sheet-body').innerHTML = ''; setInert(false); syncHistory(); if (was && sheetOpener?.isConnected) { try { sheetOpener.focus({ preventScroll: true }); } catch { } } sheetOpener = null; }
+// Tab no se escapa de la hoja abierta
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Tab' || $('#overlay').hidden) return;
+  const els = [...$('#overlay').querySelectorAll('button,input,select,textarea,summary,a[href]')].filter(x => !x.disabled && x.offsetParent !== null);
+  if (!els.length) return; const first = els[0], last = els.at(-1);
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
 
 // ---------- botón / gesto "atrás" de Android ----------
 // Cada capa abierta (sección ≠ Inicio, detalle de grupo, chat, ventana) suma una entrada al historial,
@@ -481,7 +497,11 @@ addEventListener('popstate', () => {
 });
 try { history.scrollRestoration = 'manual'; } catch { }
 // devuelve false para que `return toast('...')` en un formulario cuente como "no se guardó"
-function toast(m) { const t = $('#toast'); t.textContent = m; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2200); return false; }
+function toast(m, action) {
+  const t = $('#toast'); t.textContent = m;
+  if (action) { const b = document.createElement('button'); b.type = 'button'; b.className = 'toastbtn'; b.textContent = action.label; b.onclick = () => { t.hidden = true; action.fn(); }; t.append(' ', b); }
+  t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, action ? 6000 : 2200); return false;
+}
 const field = (label, input) => `<label>${label}${input}</label>`;
 // categorías: las de fábrica + las que el usuario fue creando al escribirlas
 const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
@@ -528,6 +548,9 @@ function formTx(t, presetType) {
     <label>Categoría<div class="combo"><input type="text" name="cat" autocomplete="off" maxlength="30" placeholder="Elegí o escribí una nueva" role="combobox" aria-expanded="false" required>
       <button type="button" class="combo-btn" data-act="combotoggle" aria-label="Ver categorías">▾</button><div class="combo-list" hidden></div></div></label>
     ${accPicker('method', t?.method || S.lastMethod || 'Efectivo', type === 'gasto' ? 'Pagué con' : 'Me ingresó por', 'method-label')}
+    <details class="more" ${t && (t.note || t.date !== today() || (t.paid != null && t.paid !== t.amount)) ? 'open' : ''}><summary>Más opciones <span class="muted">(fecha, nota${t ? '' : ', dividir con otros'})</span></summary><div class="morebody">
+    ${field('Fecha', `<input type="date" name="date" value="${t?.date || today()}" required>`)}
+    ${field('Nota (opcional)', `<input type="text" name="note" value="${esc(t?.note || '')}" placeholder="Ej: súper, nafta…">`)}
     ${t?.paid != null && t.paid !== t.amount ? `<div class="effect" role="note"><span class="muted">Pagaste ${money(t.paid)}</span><b>tu parte ${money(t.amount)}</b></div><p class="muted" style="margin:0;font-size:13.5px">Los ${money(t.paid - t.amount)} restantes están en Deudas ▸ Personas como “por recuperar”. Para cambiar el monto o el reparto, eliminá este gasto y volvé a cargarlo.</p>` : ''}
     ${!t ? `<div id="shbox"><label class="shchk" style="display:flex;flex-direction:row;gap:10px;align-items:center"><input type="checkbox" name="shon"><span>Lo dividí con otras personas</span></label>
       <div id="shfields" hidden style="display:grid;gap:12px;margin-top:10px">
@@ -535,12 +558,11 @@ function formTx(t, presetType) {
         ${field('Personas en total (contándote)', `<input type="number" name="shn" min="2" max="30" value="2">`)}
         ${field('Nombres de las otras personas (separados por coma)', `<input type="text" name="shnames" placeholder="Ana, Pedro" autocomplete="off">`)}
         <div class="effect" id="sh-eff" role="status" aria-live="polite"></div></div></div>` : ''}
-    ${field('Nota (opcional)', `<input type="text" name="note" value="${esc(t?.note || '')}" placeholder="Ej: súper, nafta…">`)}
-    ${field('Fecha', `<input type="date" name="date" value="${t?.date || today()}" required>`)}
-    <button class="btn block">Guardar</button>
+    </div></details>
+    <div class="stickybar"><button class="btn block">Guardar</button>${t ? '' : '<button type="submit" class="btn ghost block" data-again="1">Guardar y agregar otro</button>'}</div>
     ${t ? `<button type="button" class="btn danger block" data-act="txdel" data-id="${t.id}">Eliminar</button>` : ''}
   </form>`);
-  const f = $('form[data-form=tx]');
+  const f = $('form[data-form=tx]'); compactPicker(f, 'method');
   const fill = () => { const ty = f.type.value; f.cat.value = t && t.type === ty ? t.cat : allCats(ty)[0]; f.querySelectorAll('.combo-list').forEach(l => l.hidden = true); $('#method-label').textContent = ty === 'gasto' ? 'Pagué con' : 'Me ingresó por'; accEffects(f); };
   f.querySelectorAll('[name=type]').forEach(r => r.onchange = () => { if (r.value === 'mover') formMove(); else { fill(); shDraw(f); } }); fill();
   if (f.shon) f.shon.onchange = () => { $('#shfields').hidden = !f.shon.checked; shDraw(f); };
@@ -580,6 +602,14 @@ function accPicker(name, sel, label, labelId) {
       <div class="rc add"><span class="rb plus">+</span><button type="button" class="newbtn" data-act="accnew" data-f="${name}">Nueva cuenta</button><input type="text" class="newin" data-f="${name}" maxlength="30" placeholder="Nombre de la cuenta nueva" aria-label="Nombre de la cuenta nueva" hidden></div></div>
     <input type="hidden" name="${name}" value="${esc(sel)}"></div>`;
 }
+// la cuenta de siempre se ve como una sola fila; "Cambiar" despliega la lista completa
+function compactPicker(f, name) {
+  const cards = f.querySelector(`.rcards[data-f="${name}"]`), pk = cards?.closest('.pk'); if (!pk) return;
+  const sel = f[name].value, btn = document.createElement('button');
+  cards.hidden = true; btn.type = 'button'; btn.className = 'rc cursel on'; btn.dataset.act = 'pkexpand'; btn.setAttribute('aria-expanded', 'false'); btn.setAttribute('aria-label', 'Cambiar la cuenta');
+  btn.innerHTML = `<span class="rb on"></span><span><b>${esc(sel)}</b><small>Saldo ${money(accBalance(sel))}</small></span><span class="am"></span><span class="chg">Cambiar ▾</span>`;
+  pk.insertBefore(btn, cards);
+}
 // muestra a la derecha de la cuenta elegida cuánto le quedaría
 function accEffects(f) {
   if (!f || !f.amount) return;
@@ -589,6 +619,7 @@ function accEffects(f) {
     const am = r.querySelector('.am'), d = delta[g.dataset.f];
     if (r.classList.contains('on') && amt > 0 && !edit) { am.textContent = money(accBalance(r.dataset.n) + d); am.className = 'am ' + (d < 0 ? 'neg' : 'pos'); } else { am.textContent = ''; am.className = 'am'; }
   }));
+  const cs = f.querySelector('.cursel .am'), on = f.querySelector('.rcards .rc.on .am'); if (cs && on) { cs.textContent = on.textContent; cs.className = on.className; }
 }
 // en Mover plata, la cuenta de origen no puede ser también el destino
 function syncMove(f) {
@@ -821,7 +852,7 @@ function sheetPerson(k) {
 
 // ---------- acciones ----------
 const act = {
-  tab: el => { view = el.dataset.v; if (el.dataset.sub) debtsTab = el.dataset.sub; openGroup = null; render(); $('#scroll').scrollTo({ top: 0, behavior: 'instant' }); },
+  tab: el => { view = el.dataset.v === 'shared' ? (lastShared || 'groups') : el.dataset.v; if (view === 'split' || view === 'groups') lastShared = view; if (el.dataset.sub) debtsTab = el.dataset.sub; openGroup = null; render(); $('#scroll').scrollTo({ top: 0, behavior: 'instant' }); },
   mprev: () => { month = shiftMonth(month, -1); selDay = null; render(); },
   mnext: () => { month = shiftMonth(month, 1); selDay = null; render(); },
   // cambios dentro de la misma pantalla: no reanimar ni mover el scroll
@@ -834,8 +865,11 @@ const act = {
     g.querySelectorAll('.rc[data-n]').forEach(r => { r.classList.toggle('on', r === el); r.setAttribute('aria-checked', r === el); });
     const add = g.querySelector('.rc.add'); add.classList.remove('on'); add.querySelector('.newin').hidden = true; add.querySelector('.newbtn').hidden = false;
     if (f.dataset.form === 'move') syncMove(f);
+    const cs = el.closest('.pk')?.querySelector('.cursel');
+    if (cs) { cs.querySelector('b').textContent = el.dataset.n; cs.querySelector('small').textContent = 'Saldo ' + money(accBalance(el.dataset.n)); g.hidden = true; cs.setAttribute('aria-expanded', 'false'); cs.focus(); }
     accEffects(f);
   },
+  pkexpand: el => { const c = el.closest('.pk').querySelector('.rcards'); c.hidden = !c.hidden; el.setAttribute('aria-expanded', String(!c.hidden)); },
   accmore: el => { const box = el.nextElementSibling; box.hidden = !box.hidden; el.setAttribute('aria-expanded', !box.hidden); el.lastElementChild.textContent = 'Otros medios ' + (box.hidden ? '▾' : '▴'); },
   accnew: el => {
     const f = el.closest('form'), add = el.closest('.rc.add'), i = add.querySelector('.newin');
@@ -1034,6 +1068,7 @@ const forms = {
     S.lastMethod = o.method;
     id ? S.tx[S.tx.findIndex(t => t.id === id)] = o : S.tx.push(o);
     S.loans.push(...owed);
+    lastTxOp = id ? null : { id: o.id, loanIds: owed.map(l => l.id), type };   // para deshacer lo recién anotado
     month = o.date.slice(0, 7); view = view === 'home' ? 'home' : 'mov';
   },
   debt(f, id) {
@@ -1107,22 +1142,33 @@ document.addEventListener('click', e => {
   if (el) { act[el.dataset.act]?.(el); return; }
   if (e.target.id === 'overlay') closeSheet();
 });
+let lastTxOp = null;
+function undoLastTx() {
+  const op = lastTxOp; if (!op) return; lastTxOp = null;
+  S.tx = S.tx.filter(t => t.id !== op.id); S.loans = S.loans.filter(l => !op.loanIds.includes(l.id));
+  commit().then(ok => { if (ok) toast('Deshecho'); });
+}
 const captureInputs = box => [...box.querySelectorAll('input,select,textarea')].map(i => (i.type === 'checkbox' || i.type === 'radio' ? i.checked : i.value));
 const restoreInputs = (box, vals) => [...box.querySelectorAll('input,select,textarea')].forEach((i, k) => { if (k >= vals.length || i.type === 'file') return; if (i.type === 'checkbox' || i.type === 'radio') i.checked = vals[k]; else i.value = vals[k]; });
 document.addEventListener('submit', async e => {
   const f = e.target.closest('form[data-form]'); if (!f) return;
   e.preventDefault();
+  const again = e.submitter?.dataset.again === '1';
   const body = $('#sheet-body'), snap = body.contains(f) ? { title: $('#sheet-title').textContent, html: body.innerHTML, vals: captureInputs(body) } : null;
-  commit.last = null;
+  commit.last = null; lastTxOp = null;
   const r = forms[f.dataset.form](f, f.dataset.id || null);
   if (r === false) return;                                  // validación: ya avisó con un mensaje
-  if (r === undefined) { closeSheet(); commit(); }
+  if (r === undefined) { if (!again) closeSheet(); commit(); }
   const ok = commit.last ? await commit.last : true;
   if (!ok) { if (snap) { sheet(snap.title, snap.html); restoreInputs($('#sheet-body'), snap.vals); } return; }   // no se guardó: la hoja vuelve con lo que se había escrito
-  if (r === undefined) toast('Guardado');
+  if (r === undefined) {
+    const op = lastTxOp; toast(again ? 'Guardado · cargá el siguiente' : 'Guardado', op ? { label: 'Deshacer', fn: undoLastTx } : null);
+    if (again) formTx(null, op?.type || f.type?.value);
+  }
 });
 document.addEventListener('change', e => {
   if (e.target.name === 'dsub') { debtsTab = e.target.value; render(); return; }
+  if (e.target.name === 'shsub') { view = lastShared = e.target.value; openGroup = null; render(); return; }
   if (e.target.name === 'theme') {
     try { localStorage.setItem('plata.theme', e.target.value); } catch { }
     applyTheme(e.target.value); return;

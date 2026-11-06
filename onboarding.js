@@ -57,10 +57,10 @@ function onbRead() {   // [{ key|name, amount }] de lo escrito
   return out;
 }
 function onbTotal() { const t = $('#onb-total'); if (t) t.textContent = money(sum(onbRead().filter(r => !isNaN(r.amount)), r => r.amount)); }
-function onbClose() { onbMark(); const b = $('#onb'); if (b) b.hidden = true; document.body.classList.remove('onb-open'); }
+function onbClose() { onbMark(); const b = $('#onb'); if (b) b.hidden = true; document.body.classList.remove('onb-open'); setInert(false); }
 function showOnb(replay) {
   if (replay) closeSheet();
-  onbStep = 1; $('#onb').hidden = false; document.body.classList.add('onb-open'); onbDraw();
+  onbStep = 1; $('#onb').hidden = false; document.body.classList.add('onb-open'); setInert(true); onbDraw();
 }
 function startOnboarding() {
   if (onbSeen()) return;
